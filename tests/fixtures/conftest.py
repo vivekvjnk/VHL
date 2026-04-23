@@ -179,7 +179,7 @@ class VHLSystem:
         
         Args:
             name (str): The name of the project to create.
-            zip (str, optional): A pre-uploaded blob ID for the project ZIP.
+            zip (str, optional): A path to a local ZIP file OR a pre-uploaded blob ID.
         """
         # Safety check for WebSocket connectivity
         self.page.wait_for_function(
@@ -187,15 +187,40 @@ class VHLSystem:
             timeout=10000
         )
         
-        print(f"[VHL Test] Triggering create_project: name={name}, zip={zip}")
-        self.page.evaluate(f"""
-            if (window.__VHL_TEST_HOOKS__ && window.__VHL_TEST_HOOKS__.createProject) {{
-                window.__VHL_TEST_HOOKS__.createProject("{name}", "{zip or ''}");
-            }} else {{
-                console.error("[VHL Test] window.__VHL_TEST_HOOKS__.createProject NOT FOUND");
-                throw new Error("createProject hook not found");
-            }}
-        """)
+        if zip and os.path.exists(zip):
+            print(f"[VHL Test] Detected local zip file: {zip}. Uploading via WebUI...")
+            import base64
+            with open(zip, "rb") as f:
+                content = base64.b64encode(f.read()).decode()
+            
+            self.page.evaluate(f"""
+                (async () => {{
+                    const base64Content = "{content}";
+                    const binaryString = window.atob(base64Content);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {{
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }}
+                    const blob = new Blob([bytes], {{ type: 'application/zip' }});
+                    const file = new File([blob], 'project.zip', {{ type: 'application/zip' }});
+                    
+                    if (window.__VHL_TEST_HOOKS__ && window.__VHL_TEST_HOOKS__.createProject) {{
+                        await window.__VHL_TEST_HOOKS__.createProject("{name}", file);
+                    }} else {{
+                        console.error("[VHL Test] createProject hook NOT FOUND");
+                    }}
+                }})();
+            """)
+        else:
+            print(f"[VHL Test] Triggering create_project with ID/String: name={name}, zip={zip}")
+            self.page.evaluate(f"""
+                if (window.__VHL_TEST_HOOKS__ && window.__VHL_TEST_HOOKS__.createProject) {{
+                    window.__VHL_TEST_HOOKS__.createProject("{name}", "{zip or ''}");
+                }} else {{
+                    console.error("[VHL Test] window.__VHL_TEST_HOOKS__.createProject NOT FOUND");
+                    throw new Error("createProject hook not found");
+                }}
+            """)
 
     def wait_for_event(self, event_type, timeout=30000):
         """

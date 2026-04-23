@@ -7,14 +7,12 @@ def test_create_project_flow(system):
     This is a placeholder for the actual E2E test.
     """
     # Step 1: Trigger
+    system.clear_events()
     system.create_project(name="test", zip="file.zip")
 
-    # Step 2: Wait for upload + CREATE_PROJECT
-    system.wait_for_event("CREATE_PROJECT")
-
-    # Step 3: Validate message content
-    msg = system.get_event("CREATE_PROJECT")
-    assert "blob_id" in msg.payload
+    # Step 2 & 3: Wait for upload + CREATE_PROJECT and validate
+    msg = system.wait_for_event("CREATE_PROJECT")
+    assert "zip_blob_id" in msg.payload
 
     # Step 4: Wait for backend completion
     system.wait_for_event("PROJECT_CREATED")

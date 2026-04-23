@@ -2,6 +2,8 @@ import pytest
 import json
 import os
 import time
+import threading
+import websocket
 from playwright.sync_api import sync_playwright
 
 class Event:
@@ -39,12 +41,64 @@ class VHLSystem:
         
         Args:
             page (Page): The Playwright page instance.
-            config (dict): The test configuration loaded from env.json.
+            config (dict): Environment configuration.
         """
         self.page = page
         self.config = config
         self.events = []
+        self._observer_ws = None
+        self._observer_thread = None
+        self._stop_observer = threading.Event()
         self._setup_debug_listeners()
+        self._start_observer()
+
+    def _start_observer(self):
+        """
+        Starts a background thread that connects to the VHL Runtime as an observer.
+        """
+        ws_url = self.config["VHL_RELAY_URL"].replace("http", "ws") + "/ws-agent"
+        print(f"[VHL Test] Connecting observer to: {ws_url}")
+
+        def on_message(ws, message):
+            try:
+                msg = json.loads(message)
+                self._handle_message(msg)
+            except Exception as e:
+                print(f"[VHL Test] Observer failed to parse message: {e}")
+
+        def on_error(ws, error):
+            print(f"[VHL Test] Observer error: {error}")
+
+        def on_close(ws, close_status_code, close_msg):
+            print(f"[VHL Test] Observer closed: {close_msg}")
+
+        def on_open(ws):
+            print(f"[VHL Test] Observer connected. Identifying...")
+            ws.send(json.dumps({
+                "type": "IDENTIFY",
+                "payload": {"role": "vhl_test_observer"}
+            }))
+
+        self._observer_ws = websocket.WebSocketApp(
+            ws_url,
+            on_open=on_open,
+            on_message=on_message,
+            on_error=on_error,
+            on_close=on_close
+        )
+
+        self._observer_thread = threading.Thread(target=self._observer_ws.run_forever)
+        self._observer_thread.daemon = True
+        self._observer_thread.start()
+
+        # Wait for connection
+        start = time.time()
+        while time.time() - start < 5:
+            if self._observer_ws.sock and self._observer_ws.sock.connected:
+                print("[VHL Test] Observer ready!")
+                return
+            time.sleep(0.1)
+        print("[VHL Test] WARNING: Observer connection timed out.")
 
     def _setup_debug_listeners(self):
         """
@@ -57,57 +111,33 @@ class VHLSystem:
         self.page.on("pageerror", lambda exc: print(f"[Browser Error] {exc}"))
         self.page.on("requestfailed", lambda req: print(f"[Browser Request Failed] {req.method} {req.url} : {req.failure}"))
 
+    def stop(self):
+        """
+        Stops the observer and performs cleanup.
+        """
+        if self._observer_ws:
+            self._observer_ws.close()
+        print("[VHL Test] Observer stopped.")
+
     def inject_ws_wrapper(self):
         """
-        Injects a JavaScript wrapper into the browser to intercept WebSocket traffic.
+        Injects a minimal synchronization wrapper into the browser.
         
-        This method MUST be called before page.goto(). It performs several critical tasks:
-        1. Exposes a 'onVHLMessage' function to the browser to bridge messages back to Python.
-        2. Replaces the global 'window.WebSocket' constructor with a proxy.
-        3. Captures all outgoing (send) and incoming (message) JSON payloads.
-        4. Preserves static WebSocket constants (OPEN, CONNECTING, etc.) to ensure 
-           compatibility with application logic.
-        5. Stores a reference to the active socket at 'window.__VHL_LAST_WS__' for 
-           connection state monitoring.
+        Note: Actual message interception is now handled by the central 
+        relay observer. This wrapper only exists to provide synchronization 
+        points (like window.__VHL_LAST_WS__) for the test fixture.
         """
-        self.page.expose_function("onVHLMessage", self._handle_message)
         self.page.add_init_script("""
-            console.log("[VHL Test] Injecting WebSocket wrapper...");
+            console.log("[VHL Test] Injecting Lite WebSocket wrapper...");
             const OriginalWebSocket = window.WebSocket;
             
             const WrappedWebSocket = function(url, protocols) {
-                console.log("[VHL Test] New WebSocket connection to:", url);
                 const ws = new OriginalWebSocket(url, protocols);
-                
-                // Store reference for the test fixture to check readyState
                 window.__VHL_LAST_WS__ = ws;
-                
-                // Proxy the send method to capture outgoing AgentMessages
-                const originalSend = ws.send;
-                ws.send = function(data) {
-                    try {
-                        const msg = typeof data === 'string' ? JSON.parse(data) : data;
-                        window.onVHLMessage({ direction: 'sent', ...msg });
-                    } catch(e) {
-                        console.warn("[VHL Test] Failed to parse sent message:", e);
-                    }
-                    return originalSend.apply(this, arguments);
-                };
-                
-                // Add listener to capture incoming AgentMessages
-                ws.addEventListener('message', (event) => {
-                    try {
-                        const msg = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-                        window.onVHLMessage({ direction: 'received', ...msg });
-                    } catch(e) {
-                        console.warn("[VHL Test] Failed to parse received message:", e);
-                    }
-                });
-                
                 return ws;
             };
             
-            // Critical: Copy prototype and static constants to the wrapper
+            // Copy static constants
             WrappedWebSocket.prototype = OriginalWebSocket.prototype;
             WrappedWebSocket.CONNECTING = OriginalWebSocket.CONNECTING;
             WrappedWebSocket.OPEN = OriginalWebSocket.OPEN;
@@ -115,7 +145,7 @@ class VHLSystem:
             WrappedWebSocket.CLOSED = OriginalWebSocket.CLOSED;
             
             window.WebSocket = WrappedWebSocket;
-            console.log("[VHL Test] WebSocket wrapper injected successfully.");
+            console.log("[VHL Test] Lite wrapper ready.");
         """)
 
     def _handle_message(self, msg):
@@ -127,7 +157,17 @@ class VHLSystem:
         """
         if isinstance(msg, dict) and "type" in msg:
             print(f"[VHL Event] {msg.get('direction', 'unknown')}: {msg.get('type')}")
+            # If message type is ERROR log the entire payload for debugging
+            if msg.get("type") == "ERROR":
+                print(f"[VHL Event] ERROR payload: {json.dumps(msg, indent=2)}")
             self.events.append(Event(msg))
+
+    def clear_events(self):
+        """
+        Clears the captured events list. Useful before triggering a new action.
+        """
+        print(f"[VHL Test] Clearing {len(self.events)} captured events.")
+        self.events = []
 
     def create_project(self, name, zip=None):
         """
@@ -178,7 +218,8 @@ class VHLSystem:
                 if event.type == event_type:
                     print(f"[VHL Test] Found event: {event_type}")
                     return event
-            time.sleep(0.5)
+            time.sleep(0.1) # Brief sleep to avoid high CPU
+            self.page.wait_for_timeout(500)
         
         current_event_types = [e.type for e in self.events]
         print(f"[VHL Test] TIMEOUT waiting for {event_type}. Current events: {current_event_types}")
@@ -199,29 +240,52 @@ class VHLSystem:
                 return event
         return None
 
-    def backend_has_structure(self, structure):
+    def backend_has_structure(self, project_id):
         """
-        Validates that the Backend's filesystem contains the expected project structure.
+        Validates that the Agent Backend has created the expected project structure on disk.
         
-        Note: Currently a placeholder for future implementation via direct FS check or API.
+        This check ensures that the 'aosm' state machine correctly invoked the 
+        WorkspaceManager and that the directory was created in the backend's runtime storage.
+        
+        Args:
+            project_id (str): The ID of the project to check.
+            
+        Returns:
+            bool: True if the directory exists, False otherwise.
         """
-        return True
+        backend_storage = os.path.join(os.getcwd(), "vhl-agent-backend/vhl_runtime", project_id)
+        exists = os.path.isdir(backend_storage)
+        print(f"[VHL Test] Checking backend structure for {project_id}: {'EXISTS' if exists else 'MISSING'}")
+        return exists
 
     def runtime_initialized(self):
         """
-        Validates that the VHL Runtime has correctly initialized the project workspace.
+        Validates that the VHL Runtime has correctly mirrored and initialized the project.
         
-        Note: Currently a placeholder for future implementation.
+        The VHL Runtime creates a workspace directory and runs 'tsci init'. 
+        This check verifies that the runtime service is ready for development.
+        
+        Returns:
+            bool: Always returns True for now as a placeholder for remote FS check.
         """
+        # In a real environment, we might check the Docker volume or hit a health endpoint.
+        # For now, we trust the DEV_SERVER_READY event which only fires after successful init.
         return True
 
     def webui_reloaded(self):
         """
-        Validates that the WebUI has successfully reacted to system events (e.g., reloaded).
+        Validates that the WebUI has successfully reacted to system events.
         
-        Note: Currently a placeholder for future implementation.
+        Checks if the browser URL contains the project-specific path, indicating 
+        that the WebUI received the DEV_SERVER_READY event and performed a navigation/reload.
+        
+        Returns:
+            bool: True if the URL contains the expected project fragment.
         """
-        return True
+        current_url = self.page.url
+        is_reloaded = "#file=" in current_url
+        print(f"[VHL Test] Checking WebUI reload state: {'RELOADED' if is_reloaded else 'NOT_RELOADED'} (URL: {current_url})")
+        return is_reloaded
 
 @pytest.fixture(scope="session")
 def test_config():
@@ -236,7 +300,8 @@ def test_config():
         return {
             "VHL_RUNTIME_URL": "http://localhost:3000",
             "VHL_AGENT_BACKEND_URL": "http://localhost:8000",
-            "VHL_WEBUI_URL": "http://localhost:3020"
+            "VHL_WEBUI_URL": "http://localhost:3020",
+            "VHL_RELAY_URL": "ws://localhost:1080"
         }
     with open(config_path) as f:
         return json.load(f)
@@ -292,5 +357,6 @@ def system(test_config):
             page.screenshot(path="debug_screenshot.png")
             raise e
         finally:
+            vhl_system.stop()
             browser.close()
-            print(f"[VHL Test] Browser closed.\\n")
+            print(f"[VHL Test] Browser closed.\n")

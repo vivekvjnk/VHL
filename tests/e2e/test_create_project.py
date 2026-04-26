@@ -8,8 +8,8 @@ def test_create_project_flow(system):
     """
     # Step 1: Trigger
     system.clear_events()
-    system.create_project(name="bms-test", zip="tests/resources/bms-project.zip")
-
+    system.create_project(name="bms-project", zip="tests/resources/e2e/vhl-agent-backend/bms-project.zip")
+    
     # Step 2 & 3: Wait for upload + CREATE_PROJECT and validate
     msg = system.wait_for_event("CREATE_PROJECT")
     assert msg.payload["zip_blob_id"].endswith(".zip")
@@ -17,16 +17,26 @@ def test_create_project_flow(system):
 
     # Step 4: Wait for backend completion
     created_msg = system.wait_for_event("PROJECT_CREATED")
-    project_id = created_msg.payload["project_id"]
+    payload = created_msg.payload
+    
+    # Validate payload structure
+    assert "project_id" in payload
+    assert "project_root" in payload
+    assert "workspace_info" in payload
+    
+    project_id = payload["project_id"]
+    workspace_info = payload["workspace_info"]
+    manifest = workspace_info["project_manifest"]
 
     # Step 5: Validate backend FS
-    assert system.backend_has_structure(project_id)
+    assert system.backend_has_structure(manifest)
 
     # Step 6: Wait for runtime completion
-    system.wait_for_event("DEV_SERVER_READY")
+    runtime_msg = system.wait_for_event("DEV_SERVER_READY",timeout=60000) # Increased timeout for project creation flow
+    runtime_manifest = runtime_msg.payload.get("manifest")
 
     # Step 7: Validate runtime FS + tsci
-    assert system.runtime_initialized()
+    assert system.runtime_initialized(runtime_manifest)
 
     # Step 8: Validate webui reaction
     assert system.webui_reloaded()

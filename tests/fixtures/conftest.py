@@ -156,7 +156,7 @@ class VHLSystem:
             msg (dict): The captured JSON payload from the WebSocket.
         """
         if isinstance(msg, dict) and "type" in msg:
-            print(f"[VHL Event] {msg.get('direction', 'unknown')}: {msg.get('type')}")
+            print(f"[VHL Event : {msg.get('timestamp')}] {msg.get('source', 'unknown')}: {msg.get('type')}")
             # If message type is ERROR log the entire payload for debugging
             if msg.get("type") == "ERROR":
                 print(f"[VHL Event] ERROR payload: {json.dumps(msg, indent=2)}")
@@ -212,15 +212,7 @@ class VHLSystem:
                 }})();
             """)
         else:
-            print(f"[VHL Test] Triggering create_project with ID/String: name={name}, zip={zip}")
-            self.page.evaluate(f"""
-                if (window.__VHL_TEST_HOOKS__ && window.__VHL_TEST_HOOKS__.createProject) {{
-                    window.__VHL_TEST_HOOKS__.createProject("{name}", "{zip or ''}");
-                }} else {{
-                    console.error("[VHL Test] window.__VHL_TEST_HOOKS__.createProject NOT FOUND");
-                    throw new Error("createProject hook not found");
-                }}
-            """)
+            raise ValueError(f"Invalid zip path provided: {zip}")
 
     def wait_for_event(self, event_type, timeout=30000):
         """
@@ -265,36 +257,104 @@ class VHLSystem:
                 return event
         return None
 
-    def backend_has_structure(self, project_id):
+    def backend_has_structure(self, actual_manifest):
         """
-        Validates that the Agent Backend has created the expected project structure on disk.
-        
-        This check ensures that the 'aosm' state machine correctly invoked the 
-        WorkspaceManager and that the directory was created in the backend's runtime storage.
+        Validates that the Agent Backend has created the expected project structure on disk
+        by comparing the actual manifest with the expected one.
         
         Args:
-            project_id (str): The ID of the project to check.
+            actual_manifest (dict): The manifest received from the backend.
             
         Returns:
-            bool: True if the directory exists, False otherwise.
+            bool: True if the manifest matches the expected one, False otherwise.
         """
-        backend_storage = os.path.join(os.getcwd(), "vhl-agent-backend/vhl_runtime", project_id)
-        exists = os.path.isdir(backend_storage)
-        print(f"[VHL Test] Checking backend structure for {project_id}: {'EXISTS' if exists else 'MISSING'}")
-        return exists
+        expected_manifest_path = os.path.join(
+            os.getcwd(), 
+            "tests/resources/e2e/vhl-agent-backend/bms-project_manifest.json"
+        )
+        
+        if not os.path.exists(expected_manifest_path):
+            print(f"[VHL Test] Expected manifest NOT FOUND at: {expected_manifest_path}")
+            return False
+            
+        with open(expected_manifest_path, 'r') as f:
+            expected_manifest = json.load(f)
+            
+        # Compare dictionaries
+        match = (actual_manifest == expected_manifest)
+        
+        if not match:
+            print("[VHL Test] Manifest mismatch!")
+            # Print a snippet of the mismatch for debugging if needed
+            print(f"Expected: {json.dumps(expected_manifest, indent=2)[:500]}...")
+            print(f"Actual: {json.dumps(actual_manifest, indent=2)[:500]}...")
+            
+        print(f"[VHL Test] Checking backend manifest: {'MATCH' if match else 'MISMATCH'}")
+        return match
 
-    def runtime_initialized(self):
+    def runtime_initialized(self, actual_manifest=None):
         """
         Validates that the VHL Runtime has correctly mirrored and initialized the project.
         
-        The VHL Runtime creates a workspace directory and runs 'tsci init'. 
-        This check verifies that the runtime service is ready for development.
-        
+        Args:
+            actual_manifest (dict, optional): The manifest received from the runtime.
+            
         Returns:
-            bool: Always returns True for now as a placeholder for remote FS check.
+            bool: True if initialization is valid.
         """
-        # In a real environment, we might check the Docker volume or hit a health endpoint.
-        # For now, we trust the DEV_SERVER_READY event which only fires after successful init.
+        if actual_manifest is not None:
+            return self.runtime_has_structure(actual_manifest)
+        
+        # Fallback for old tests
+        return True
+
+    def runtime_has_structure(self, actual_manifest):
+        """
+        Validates that the VHL Runtime has the expected project structure.
+        
+        Args:
+            actual_manifest (dict): The manifest received from the runtime via DEV_SERVER_READY.
+            
+        Returns:
+            bool: True if the structure matches (ignoring hashes for generated files), False otherwise.
+        """
+        # Expected keys from user
+        expected_modules = [
+            "bms-monitor-module", "communication-bridge", "current-sensing", 
+            "high-voltage-power-supply", "lib", "low-voltage-power-supply", 
+            "microcontroller-module"
+        ]
+        expected_generated_files = [
+            "index.circuit.tsx", "package.json", "tscircuit.config.json", "tsconfig.json"
+        ]
+        
+        # Check all modules exist and are dictionaries
+        for module in expected_modules:
+            if module not in actual_manifest:
+                print(f"[VHL Test] Runtime manifest MISSING module: {module}")
+                return False
+            if not isinstance(actual_manifest[module], dict):
+                print(f"[VHL Test] Runtime manifest key {module} expected to be a dict, but got {type(actual_manifest[module])}")
+                return False
+        
+        # Check all generated files exist
+        for gen_file in expected_generated_files:
+            if gen_file not in actual_manifest:
+                print(f"[VHL Test] Runtime manifest MISSING generated file: {gen_file}")
+                return False
+            if not isinstance(actual_manifest[gen_file], str):
+                print(f"[VHL Test] Runtime manifest key {gen_file} expected to be a hash string, but got {type(actual_manifest[gen_file])}")
+                return False
+
+        # Ensure no unexpected top-level keys
+        all_expected = set(expected_modules + expected_generated_files)
+        actual_keys = set(actual_manifest.keys())
+        unexpected = actual_keys - all_expected
+        if unexpected:
+            print(f"[VHL Test] Runtime manifest has UNEXPECTED keys: {unexpected}")
+            return False
+
+        print("[VHL Test] Runtime manifest structure VALIDATED.")
         return True
 
     def webui_reloaded(self):

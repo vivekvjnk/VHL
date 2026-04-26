@@ -1,0 +1,95 @@
+warning: `VIRTUAL_ENV=/home/vivekv/Documents/virtual_hardware_laboratary/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+============================= test session starts ==============================
+platform linux -- Python 3.13.13, pytest-9.0.3, pluggy-1.6.0 -- /home/vivekv/Documents/VHL-System/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/vivekv/Documents/VHL-System
+configfile: pytest.ini
+plugins: base-url-2.1.0, playwright-0.7.2
+collecting ... collected 1 item
+
+tests/e2e/test_create_project.py::test_create_project_flow PASSED        [100%]
+
+==================================== PASSES ====================================
+___________________________ test_create_project_flow ___________________________
+---------------------------- Captured stdout setup -----------------------------
+\n[VHL Test] Initializing system fixture...
+[VHL Test] Connecting observer to: ws://localhost:1080/ws-agent
+[VHL Test] Observer connected. Identifying...
+[VHL Event : None] unknown: OBSERVER_READY
+[VHL Test] Observer ready!
+[VHL Test] Navigating to: http://localhost:3020
+[Browser Console] log: [VHL Test] Injecting Lite WebSocket wrapper...
+[Browser Console] log: [VHL Test] Lite wrapper ready.
+[Browser Console] warning: cdn.tailwindcss.com should not be used in production. To use Tailwind CSS in production, install it as a PostCSS plugin or use the Tailwind CLI: https://tailwindcss.com/docs/installation
+[VHL Test] Page loaded. Waiting for test hooks...
+[Browser Console] info: %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[Browser Console] log: [VHL-API] API_BASE initialized to: http://localhost:3020/api
+[Browser Console] log: [vhl-webui:useAgentSocket] Attempting to connect to http://localhost:3020/ws-agent...
+[Browser Console] log: [vhl-webui:useAgentSocket] Successfully connected to http://localhost:3020/ws-agent[VHL Event : None] unknown: IDENTIFY
+
+[VHL Event : 2026-04-26T12:19:05.370Z] vhl_webui: GET_SYSTEM_STATE
+[Browser Console] debug: [vhl-webui:useAgentSocket] Sending message: {type: IDENTIFY, payload: Object}[VHL Event : 2026-04-26T12:19:05.372Z] vhl_runtime: SYSTEM_STATE
+
+[Browser Console] debug: [vhl-webui:useAgentSocket] Sending message: {id: a4a8070d-3211-402b-8d8e-6f64b242a825, type: GET_SYSTEM_STATE, artifact_id: null, timestamp: 2026-04-26T12:19:05.370Z, source: vhl_webui}
+[Browser Console] debug: [vhl-webui:useAgentSocket] Received message: {type: AGENT_CONNECTED}
+[VHL Event : 2026-04-26T12:19:05.373Z] vhl_runtime: PROJECT_STATE
+[Browser Console] log: Received message: {type: AGENT_CONNECTED}
+[Browser Console] debug: [vhl-webui:useAgentSocket] Received message: {type: WORKSPACE_CONNECTED}
+[Browser Console] log: Received message: {type: WORKSPACE_CONNECTED}
+[Browser Console] debug: [vhl-webui:useAgentSocket] Received message: {id: 0dba2ebc-d081-4629-bef3-42074d7927cb, type: SYSTEM_STATE, artifact_id: null, timestamp: 2026-04-26T12:19:05.372Z, source: vhl_runtime}
+[Browser Console] log: Received message: {id: 0dba2ebc-d081-4629-bef3-42074d7927cb, type: SYSTEM_STATE, artifact_id: null, timestamp: 2026-04-26T12:19:05.372Z, source: vhl_runtime}
+[Browser Console] debug: [vhl-webui:useAgentSocket] Received message: {id: 3d328d29-9049-4b2c-9c95-36bc948de6b8, type: PROJECT_STATE, artifact_id: null, timestamp: 2026-04-26T12:19:05.373Z, source: vhl_runtime}
+[Browser Console] log: Received message: {id: 3d328d29-9049-4b2c-9c95-36bc948de6b8, type: PROJECT_STATE, artifact_id: null, timestamp: 2026-04-26T12:19:05.373Z, source: vhl_runtime}
+[Browser Console] log: [Worker] Creating circuit web worker with config: {evalVersion: 0.0.787, webWorkerBlobUrl: undefined, projectConfig: Object, verbose: true, disableCdnLoading: true}
+[Browser Console] log: [Worker] Creating circuit web worker with config: {evalVersion: 0.0.787, webWorkerBlobUrl: undefined, verbose: true, projectConfig: Object, disableCdnLoading: true}
+[Browser Console] warning: [VHL Test] handleCreateProject called without a name. Ignoring.
+[Browser Console] trace: console.trace
+[VHL Test] Hooks ready!
+[VHL Test] Waiting for WebSocket connection...
+[VHL Test] WebSocket connected and ready!
+----------------------------- Captured stdout call -----------------------------
+[VHL Test] Clearing 5 captured events.
+[VHL Test] Detected local zip file: tests/resources/e2e/vhl-agent-backend/bms-project.zip. Uploading via WebUI...
+[Browser Console] log: [VHL Test] handleCreateProject triggered for: bms-project
+[Browser Console] log: [MinioBrowserClient] Uploading project.zip to http://127.0.0.1:9000/vhl/uploads/61320f7ec456d4d55c36b13f77b38a7e543b419fd8e9d5e98b3c8beba10f67cc.zip
+[Browser Console] log: [MinioBrowserClient] Successfully uploaded project.zip to uploads/61320f7ec456d4d55c36b13f77b38a7e543b419fd8e9d5e98b3c8beba10f67cc.zip
+[Browser Console] debug: [vhl-webui:useAgentSocket] Sending message: {id: c46eb878-faa6-442c-be67-61649440fa85, type: CREATE_PROJECT, artifact_id: null, timestamp: 2026-04-26T12:19:07.430Z, source: vhl_webui}
+[VHL Event : 2026-04-26T12:19:07.430Z] vhl_webui: CREATE_PROJECT
+[VHL Test] Waiting for event: CREATE_PROJECT (timeout=30000ms)
+[VHL Test] Found event: CREATE_PROJECT
+[VHL Test] Waiting for event: PROJECT_CREATED (timeout=30000ms)
+[Browser Request Failed] PUT http://127.0.0.1:9000/vhl/uploads/61320f7ec456d4d55c36b13f77b38a7e543b419fd8e9d5e98b3c8beba10f67cc.zip : net::ERR_ABORTED
+[VHL Event : 2026-04-26T12:19:07.574615Z] vhl_agent_backend: PROJECT_CREATED
+[VHL Event : 2026-04-26T12:19:07.579Z] vhl_runtime: PROJECT_STATE
+[Browser Console] debug: [vhl-webui:useAgentSocket] Received message: {id: ecdd50eb-79d6-4306-bc46-5202351abc8d, type: PROJECT_CREATED, artifact_id: null, timestamp: 2026-04-26T12:19:07.574615Z, source: vhl_agent_backend}
+[Browser Console] log: Received message: {id: ecdd50eb-79d6-4306-bc46-5202351abc8d, type: PROJECT_CREATED, artifact_id: null, timestamp: 2026-04-26T12:19:07.574615Z, source: vhl_agent_backend}
+[Browser Console] debug: [vhl-webui:useAgentSocket] Received message: {id: e3cd19a4-a141-43f7-a77e-415c26fe48cc, type: PROJECT_STATE, artifact_id: null, timestamp: 2026-04-26T12:19:07.579Z, source: vhl_runtime}
+[Browser Console] log: Received message: {id: e3cd19a4-a141-43f7-a77e-415c26fe48cc, type: PROJECT_STATE, artifact_id: null, timestamp: 2026-04-26T12:19:07.579Z, source: vhl_runtime}
+[VHL Test] Found event: PROJECT_CREATED
+[VHL Test] Checking backend manifest: MATCH
+[VHL Test] Waiting for event: DEV_SERVER_READY (timeout=60000ms)
+[VHL Event : 2026-04-26T12:19:11.058728Z] vhl_agent_backend: AGENT_HEALTH
+[VHL Event : 2026-04-26T12:19:26.059583Z] vhl_agent_backend: AGENT_HEALTH
+[Browser Console] error: Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+[Browser Console] error: Failed to load resource: the server responded with a status of 502 (Bad Gateway)
+[VHL Event : 2026-04-26T12:19:39.657Z] vhl_runtime: DEV_SERVER_READY
+[VHL Event : 2026-04-26T12:19:39.667Z] vhl_runtime: PROJECT_STATE
+[Browser Console] debug: [vhl-webui:useAgentSocket] Received message: {id: b1a7d583-66a1-4af3-93a8-4ee223506f72, type: DEV_SERVER_READY, artifact_id: null, timestamp: 2026-04-26T12:19:39.657Z, source: vhl_runtime}
+[Browser Console] log: Received message: {id: b1a7d583-66a1-4af3-93a8-4ee223506f72, type: DEV_SERVER_READY, artifact_id: null, timestamp: 2026-04-26T12:19:39.657Z, source: vhl_runtime}
+[Browser Console] log: [ChatInterface] DEV_SERVER_READY Target: /#file=bms-project_a3c22154%2Findex.circuit.tsx
+[Browser Console] log: [ChatInterface] Current URL: http://localhost:3020/#file=index.circuit.tsx&main_component=index.circuit.tsx, Path: /#file=index.circuit.tsx&main_component=index.circuit.tsx
+[Browser Console] log: [ChatInterface] Navigating to /#file=bms-project_a3c22154%2Findex.circuit.tsx
+[Browser Console] debug: [vhl-webui:useAgentSocket] Received message: {id: b882f7d0-1833-42dd-8d45-37f24263435d, type: PROJECT_STATE, artifact_id: null, timestamp: 2026-04-26T12:19:39.667Z, source: vhl_runtime}
+[Browser Console] log: Received message: {id: b882f7d0-1833-42dd-8d45-37f24263435d, type: PROJECT_STATE, artifact_id: null, timestamp: 2026-04-26T12:19:39.667Z, source: vhl_runtime}
+[Browser Console] log: [VHL Test] Injecting Lite WebSocket wrapper...
+[Browser Console] log: [VHL Test] Lite wrapper ready.
+[Browser Console] warning: cdn.tailwindcss.com should not be used in production. To use Tailwind CSS in production, install it as a PostCSS plugin or use the Tailwind CLI: https://tailwindcss.com/docs/installation
+[VHL Test] Found event: DEV_SERVER_READY
+[VHL Test] Runtime manifest structure VALIDATED.
+[VHL Test] Checking WebUI reload state: RELOADED (URL: http://localhost:3020/#file=bms-project_a3c22154%2Findex.circuit.tsx)
+--------------------------- Captured stdout teardown ---------------------------
+[VHL Test] Observer closed: None
+[VHL Test] Observer stopped.
+[VHL Test] Browser closed.
+
+============================== 1 passed in 36.72s ==============================

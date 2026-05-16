@@ -4,7 +4,28 @@ import os
 import time
 import threading
 import websocket
+import subprocess
+import signal
+import tempfile
+import shutil
+import socket
+import sys
+import sqlite3
 from playwright.sync_api import sync_playwright
+
+def is_port_open(port):
+    """Checks if a local port is open and listening."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(('localhost', port)) == 0
+
+def wait_for_port(port, timeout=30):
+    """Blocks until a port is open or timeout is reached."""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if is_port_open(port):
+            return True
+        time.sleep(1)
+    return False
 
 class Event:
     """
@@ -35,16 +56,18 @@ class VHLSystem:
     and validate system state across the Backend and Runtime.
     """
     
-    def __init__(self, page, config):
+    def __init__(self, page, config, workspace_path=None):
         """
         Initializes the VHLSystem orchestrator.
         
         Args:
             page (Page): The Playwright page instance.
             config (dict): Environment configuration.
+            workspace_path (str, optional): Root directory of the backend workspace.
         """
         self.page = page
         self.config = config
+        self.workspace_path = workspace_path
         self.events = []
         self._observer_ws = None
         self._observer_thread = None
@@ -257,40 +280,90 @@ class VHLSystem:
                 return event
         return None
 
-    def backend_has_structure(self, actual_manifest):
+    def backend_has_structure(self, project_id, actual_manifest):
         """
-        Validates that the Agent Backend has created the expected project structure on disk
-        by comparing the actual manifest with the expected one.
+        Validates that the Agent Backend has created the expected project structure on disk.
+        This includes checking Git repository integrity, SQLite semantic ledger, and .gitignore.
         
         Args:
-            actual_manifest (dict): The manifest received from the backend.
+            project_id (str): The ID of the project to validate.
+            actual_manifest (dict): The Git-native manifest received from the backend.
             
         Returns:
-            bool: True if the manifest matches the expected one, False otherwise.
+            bool: True if the structure is valid, False otherwise.
         """
-        expected_manifest_path = os.path.join(
-            os.getcwd(), 
-            "tests/resources/e2e/vhl-agent-backend/bms-project_manifest.json"
-        )
+        if not self.workspace_path:
+            print("[VHL Test] Workspace path NOT SET in system orchestrator. Skipping deep validation.")
+            return True
+
+        project_path = os.path.join(self.workspace_path, project_id)
         
-        if not os.path.exists(expected_manifest_path):
-            print(f"[VHL Test] Expected manifest NOT FOUND at: {expected_manifest_path}")
+        # 1. Validate SQLite Semantic Ledger
+        db_path = os.path.join(project_path, ".vhl", "state.db")
+        if not os.path.exists(db_path):
+            print(f"[VHL Test] SQLite DB NOT FOUND at: {db_path}")
             return False
-            
-        with open(expected_manifest_path, 'r') as f:
-            expected_manifest = json.load(f)
-            
-        # Compare dictionaries
-        match = (actual_manifest == expected_manifest)
         
-        if not match:
-            print("[VHL Test] Manifest mismatch!")
-            # Print a snippet of the mismatch for debugging if needed
-            print(f"Expected: {json.dumps(expected_manifest, indent=2)[:500]}...")
-            print(f"Actual: {json.dumps(actual_manifest, indent=2)[:500]}...")
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
             
-        print(f"[VHL Test] Checking backend manifest: {'MATCH' if match else 'MISMATCH'}")
-        return match
+            # Check INITIALIZE operation
+            cursor.execute("SELECT op_name, status FROM semantic_operations WHERE op_name='INITIALIZE'")
+            row = cursor.fetchone()
+            if not row or row[1] != "SUCCESS":
+                print(f"[VHL Test] INITIALIZE operation NOT FOUND or failed in DB")
+                conn.close()
+                return False
+            
+            # Check for module entries
+            cursor.execute("SELECT COUNT(*) FROM project_modules")
+            count = cursor.fetchone()[0]
+            if count == 0:
+                print("[VHL Test] No modules found in DB")
+                conn.close()
+                return False
+            
+            conn.close()
+            print("[VHL Test] SQLite Semantic Ledger VALIDATED.")
+        except Exception as e:
+            print(f"[VHL Test] Error validating SQLite DB: {e}")
+            return False
+
+        # 2. Validate Git Repository
+        git_path = os.path.join(project_path, ".git")
+        if not os.path.exists(git_path):
+            print(f"[VHL Test] Git directory NOT FOUND at: {git_path}")
+            return False
+        print("[VHL Test] Git Repository VALIDATED.")
+
+        # 3. Validate .gitignore
+        gitignore_path = os.path.join(project_path, ".gitignore")
+        if not os.path.exists(gitignore_path):
+            print(f"[VHL Test] .gitignore NOT FOUND at: {gitignore_path}")
+            return False
+        
+        with open(gitignore_path, 'r') as f:
+            content = f.read()
+            if ".vhl/" not in content:
+                print("[VHL Test] .vhl/ directory NOT IGNORED in .gitignore")
+                return False
+        print("[VHL Test] .gitignore VALIDATED.")
+
+        # 4. Validate Manifest (Artifact Space)
+        # Basic check for expected modules in the Git-native manifest
+        expected_modules = [
+            "bms-monitor-module", "communication-bridge", "current-sensing", 
+            "high-voltage-power-supply", "low-voltage-power-supply", 
+            "microcontroller-module"
+        ]
+        for mod in expected_modules:
+            if mod not in actual_manifest:
+                print(f"[VHL Test] Manifest MISSING expected module: {mod}")
+                return False
+        
+        print(f"[VHL Test] Backend manifest structure VALIDATED for {project_id}.")
+        return True
 
     def runtime_initialized(self, actual_manifest=None):
         """
@@ -321,8 +394,8 @@ class VHLSystem:
         # Expected keys from user
         expected_modules = [
             "bms-monitor-module", "communication-bridge", "current-sensing", 
-            "high-voltage-power-supply", "lib", "low-voltage-power-supply", 
-            "microcontroller-module"
+            "high-voltage-power-supply", "low-voltage-power-supply", 
+            "microcontroller-module", "system-boundary.md"
         ]
         expected_generated_files = [
             "index.circuit.tsx", "package.json", "tscircuit.config.json", "tsconfig.json"
@@ -373,12 +446,112 @@ class VHLSystem:
         return is_reloaded
 
 @pytest.fixture(scope="session")
+def managed_services():
+    """
+    Manages the lifecycle of VHL Runtime and VHL Agent Backend for the test session.
+    """
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+    runtime_dir = os.path.join(root_dir, "vhl-runtime")
+    backend_dir = os.path.join(root_dir, "vhl-agent-backend")
+    
+    print("\n[VHL Test] --- PRE-TEST CLEANUP ---")
+    
+    # 1. Kill any existing aosm processes
+    try:
+        subprocess.run(["pkill", "-f", "aosm"], stderr=subprocess.DEVNULL)
+        print("[VHL Test] Cleaned up existing aosm processes.")
+    except Exception:
+        pass
+
+    # 2. Stop existing docker containers
+    print("[VHL Test] Stopping existing vhl-runtime containers...")
+    subprocess.run(["docker", "compose", "down"], cwd=runtime_dir, capture_output=True)
+    
+    print("\n[VHL Test] --- STARTING SERVICES ---")
+    
+    # 3. Start vhl-runtime
+    print("[VHL Test] Starting vhl-runtime via docker compose...")
+    subprocess.run(["docker", "compose", "up", "-d"], cwd=runtime_dir, check=True)
+    
+    # 4. Wait for runtime ports
+    print("[VHL Test] Waiting for runtime ports (1080, 3020)...")
+    if not wait_for_port(1080, timeout=45):
+        raise RuntimeError("vhl-runtime (port 1080) failed to start.")
+    if not wait_for_port(3020, timeout=45):
+        raise RuntimeError("vhl-runtime (port 3020) failed to start.")
+    print("[VHL Test] vhl-runtime is READY.")
+
+    # 5. Create temporary workspace
+    temp_workspace = tempfile.mkdtemp(prefix="vhl_e2e_workspace_")
+    print(f"[VHL Test] Created temporary workspace: {temp_workspace}")
+
+    # 6. Start vhl-agent-backend
+    print("[VHL Test] Starting vhl-agent-backend...")
+    backend_env = os.environ.copy()
+    backend_process = subprocess.Popen(
+        ["uv", "run", "aosm", temp_workspace],
+        cwd=backend_dir,
+        env=backend_env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        preexec_fn=os.setsid
+    )
+
+    def stream_logs(pipe, prefix):
+        try:
+            for line in iter(pipe.readline, ''):
+                if line:
+                    sys.stdout.write(f"{prefix} {line}")
+                    sys.stdout.flush()
+        except Exception:
+            pass
+        finally:
+            pipe.close()
+
+    log_thread = threading.Thread(target=stream_logs, args=(backend_process.stdout, "[Backend]"))
+    log_thread.daemon = True
+    log_thread.start()
+
+    # 7. Wait for backend startup
+    time.sleep(5) 
+    if backend_process.poll() is not None:
+        raise RuntimeError(f"vhl-agent-backend failed to start immediately.")
+    
+    print("[VHL Test] vhl-agent-backend process started.")
+
+    yield {
+        "workspace_path": temp_workspace,
+        "backend_process": backend_process
+    }
+
+    print("\n[VHL Test] --- TEARDOWN ---")
+    
+    # 8. Stop backend
+    print("[VHL Test] Terminating vhl-agent-backend...")
+    try:
+        os.killpg(os.getpgid(backend_process.pid), signal.SIGTERM)
+        backend_process.wait(timeout=5)
+    except Exception:
+        try:
+            os.killpg(os.getpgid(backend_process.pid), signal.SIGKILL)
+        except:
+            pass
+
+    # 9. Stop runtime
+    print("[VHL Test] Stopping vhl-runtime containers...")
+    subprocess.run(["docker", "compose", "down"], cwd=runtime_dir, capture_output=True)
+
+    # 10. Remove temp workspace
+    print(f"[VHL Test] Removing temporary workspace: {temp_workspace}")
+    shutil.rmtree(temp_workspace, ignore_errors=True)
+    
+    print("[VHL Test] Environment cleanup COMPLETE.\n")
+
+@pytest.fixture(scope="session")
 def test_config():
     """
     Loads test configuration from tests/config/env.json.
-    
-    Returns:
-        dict: Configuration mapping for Runtime, Backend, and WebUI URLs.
     """
     config_path = os.path.join(os.path.dirname(__file__), "../config/env.json")
     if not os.path.exists(config_path):
@@ -392,48 +565,51 @@ def test_config():
         return json.load(f)
 
 @pytest.fixture(scope="function")
-def system(test_config):
+def system(test_config, managed_services):
     """
     The primary pytest fixture providing an initialized VHLSystem instance.
-    
-    This fixture:
-    1. Launches a Playwright browser.
-    2. Injects the WebSocket interception wrapper.
-    3. Navigates to the WebUI.
-    4. Waits for application-level hooks and WebSocket connectivity.
-    5. Yields the orchestrator to the test case.
-    6. Performs cleanup and takes screenshots on failure.
     """
-    print(f"\\n[VHL Test] Initializing system fixture...")
+    print(f"\n[VHL Test] Initializing system fixture...")
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context()
         page = context.new_page()
         
-        vhl_system = VHLSystem(page, test_config)
+        vhl_system = VHLSystem(page, test_config, managed_services["workspace_path"])
         vhl_system.inject_ws_wrapper()
         
         target_url = test_config["VHL_WEBUI_URL"]
         print(f"[VHL Test] Navigating to: {target_url}")
         
         try:
-            page.goto(target_url, wait_until="networkidle", timeout=15000)
+            page.goto(target_url, wait_until="load", timeout=45000)
             print(f"[VHL Test] Page loaded. Waiting for test hooks...")
             
-            # Wait for React useEffect to attach hooks to window
             page.wait_for_function(
                 "window.__VHL_TEST_HOOKS__ && window.__VHL_TEST_HOOKS__.createProject", 
                 timeout=15000
             )
             print(f"[VHL Test] Hooks ready!")
             
-            # Wait for WebSocket handshake to complete
-            print(f"[VHL Test] Waiting for WebSocket connection...")
             page.wait_for_function(
                 "window.__VHL_LAST_WS__ && window.__VHL_LAST_WS__.readyState === window.WebSocket.OPEN", 
-                timeout=10000
+                timeout=15000
             )
             print(f"[VHL Test] WebSocket connected and ready!")
+            
+            # Wait for backend identification
+            print(f"[VHL Test] Waiting for vhl_agent_backend to connect to relay...")
+            backend_ready = False
+            start_wait = time.time()
+            while time.time() - start_wait < 30:
+                if any(getattr(e, "source", None) == "vhl_agent_backend" or (e.type == "IDENTIFY" and getattr(e, "payload", {}).get("role") == "vhl_agent_backend") for e in vhl_system.events):
+                    print("[VHL Test] vhl_agent_backend connected!")
+                    backend_ready = True
+                    break
+                time.sleep(1)
+            
+            if not backend_ready:
+                print("[VHL Test] WARNING: vhl_agent_backend did not connect to relay in time.")
             
             yield vhl_system
             

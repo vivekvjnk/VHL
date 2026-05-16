@@ -29,7 +29,7 @@ def test_create_project_flow(system):
     manifest = workspace_info["project_manifest"]
 
     # Step 5: Validate backend FS
-    assert system.backend_has_structure(manifest)
+    assert system.backend_has_structure(project_id, manifest)
 
     # Step 6: Wait for runtime completion
     runtime_msg = system.wait_for_event("DEV_SERVER_READY",timeout=60000) # Increased timeout for project creation flow

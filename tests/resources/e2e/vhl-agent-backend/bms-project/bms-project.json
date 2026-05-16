@@ -1,0 +1,186 @@
+{
+  "metadata": {
+    "project_name": "bms-project",
+    "manifest_version": "1.1.0",
+    "total_files": 23,
+    "created_at": "2026-04-26T07:18:46Z",
+    "format": "zip-contained"
+  },
+  "modules": {
+    "root": {
+      "system-boundary": {
+        "name": "system-boundary.md",
+        "rel_path": ".",
+        "type": "plain-text",
+        "description": "Top-level system architecture and global constraints.",
+        "checksum": "sha256:956bc4edb08096f4459d3d00f65cab7bb3b21ef02d8cda8efc19c48accdb16dc"
+      }
+    },
+    "bms-monitor-module": {
+      "bms-monitor-module-boundary": {
+        "name": "bms-monitor-module-boundary.md",
+        "rel_path": "resources",
+        "type": "plain-text",
+        "description": "Module-specific functional boundaries.",
+        "checksum": "sha256:4c248ba6e7a0382642d3834d7a90032f2770853771d02d0d40eb03d7b323347a"
+      },
+      "bq79616-datasheet": {
+        "name": "bq79616-datasheet.md",
+        "rel_path": "resources",
+        "type": "plain-text",
+        "description": "IC datasheet and technical specifications.",
+        "checksum": "sha256:29d9c4bce3c8d577b8be4b53199c507d8ba1262bdfbf1212be556058db295320"
+      },
+      "BQ79616-eval-board": {
+        "name": "BQ79616-eval-board.md",
+        "rel_path": "resources",
+        "type": "plain-text",
+        "description": "Evaluation board reference documentation.",
+        "checksum": "sha256:401a878b1ef893ecf343a4015026ef6a0d4ea33b5770047beeeab2a4b738004b"
+      },
+      "bms-monitor-module_preprocessed": {
+        "name": "bms-monitor-module_preprocessed.png",
+        "rel_path": "resources/schematic_images",
+        "type": "image",
+        "description": "Visual asset: Bms monitor module preprocessed.",
+        "checksum": "sha256:f5f71a83db7a56f0a6256900d10412184125ed0175476af241f4646c87dfc4f1"
+      }
+    },
+    "communication-bridge": {
+      "BQ79600-eval-board": {
+        "name": "BQ79600-eval-board.md",
+        "rel_path": "resources",
+        "type": "plain-text",
+        "description": "Evaluation board reference documentation.",
+        "checksum": "sha256:0cfa82017631fcf074b6959bdeced4a338425a19eb7c81b27623b70726d8da16"
+      },
+      "bq79600-q1-datasheet": {
+        "name": "bq79600-q1-datasheet.md",
+        "rel_path": "resources",
+        "type": "plain-text",
+        "description": "IC datasheet and technical specifications.",
+        "checksum": "sha256:560a655e5c2cf4e2f19c2dc522a0e1985e5207f51179fdc3544943dcfc681478"
+      },
+      "communication-bridge-boundary": {
+        "name": "communication-bridge-boundary.md",
+        "rel_path": "resources",
+        "type": "plain-text",
+        "description": "Module-specific functional boundaries.",
+        "checksum": "sha256:3bf2cb9fea440febaf5673d447001ad063b5cdbf17b9662e2474017e8752f26a"
+      },
+      "bq79600_eval_part_1": {
+        "name": "bq79600_eval_part_1.png",
+        "rel_path": "resources/schematic_images",
+        "type": "image",
+        "description": "Visual asset: Bq79600 eval part 1.",
+        "checksum": "sha256:fcd2d22b46bb85ad1463502990ee5f9e8db3077ef789d0d5a08169d67ddbe016"
+      },
+      "bq79600_eval_part_2": {
+        "name": "bq79600_eval_part_2.png",
+        "rel_path": "resources/schematic_images",
+        "type": "image",
+        "description": "Visual asset: Bq79600 eval part 2.",
+        "checksum": "sha256:b8534a0a759fc56061b27c2d986889278e648dc4b1f32dcbcb2a46240204c739"
+      }
+    },
+    "current-sensing": {
+      "amc1301-datasheet": {
+        "name": "amc1301-datasheet.md",
+        "rel_path": "resources",
+        "type": "plain-text",
+        "description": "IC datasheet and technical specifications.",
+        "checksum": "sha256:0e5c7dd2eebd784654ce1e03582e6ecfac1ca79342b82f5bebc3fd45b75c4ff1"
+      },
+      "amc130x-eval-board": {
+        "name": "amc130x-eval-board.md",
+        "rel_path": "resources",
+        "type": "plain-text",
+        "description": "Evaluation board reference documentation.",
+        "checksum": "sha256:08f4e97a58a88be7ab688d71116353b51886994d5fc90d8fcd18050eb67f046f"
+      },
+      "am130x_eval_board": {
+        "name": "am130x_eval_board.png",
+        "rel_path": "resources/schematic_images",
+        "type": "image",
+        "description": "Visual asset: Am130x eval board.",
+        "checksum": "sha256:ca1cab3de8736d645de294f88e7c231ea44b62bd2907f5bbdbd415371ab4f602"
+      }
+    },
+    "high-voltage-power-supply": {
+      "ucc28881_eval_board": {
+        "name": "ucc28881_eval_board.png",
+        "rel_path": "resources/schematic_images",
+        "type": "image",
+        "description": "Visual asset: Ucc28881 eval board.",
+        "checksum": "sha256:9e1f668caf6aedd3496082973e1453daad9e567b125f60c10c6c9810786a2eb7"
+      },
+      "ucc28881-datasheet": {
+        "name": "ucc28881-datasheet.md",
+        "rel_path": "resources",
+        "type": "plain-text",
+        "description": "IC datasheet and technical specifications.",
+        "checksum": "sha256:8b3239a111093c5b4c794e32d16e6c9db1a6ae3c8e0a7f250ddee9b5c9316d50"
+      },
+      "ucc28881-eval-board": {
+        "name": "ucc28881-eval-board.md",
+        "rel_path": "resources",
+        "type": "plain-text",
+        "description": "Evaluation board reference documentation.",
+        "checksum": "sha256:2ca60b494f8dbc2fc8dd922347b9fdc66b2da915502aac0fed81f95803578ae1"
+      }
+    },
+    "low-voltage-power-supply": {
+      "ucc28750_eval_board": {
+        "name": "ucc28750_eval_board.png",
+        "rel_path": "resources/schematic_images",
+        "type": "image",
+        "description": "Visual asset: Ucc28750 eval board.",
+        "checksum": "sha256:23cd7cc18c2cee6082a1e62e92b857cb9c70540856c1b16b36237aca9582a043"
+      },
+      "ucc28750-datasheet": {
+        "name": "ucc28750-datasheet.md",
+        "rel_path": "resources",
+        "type": "plain-text",
+        "description": "IC datasheet and technical specifications.",
+        "checksum": "sha256:bc0a2458ce65a755395490d700d0183b29d0527532a186e69a1ead7d2df9a8a5"
+      },
+      "ucc28750-eval-board": {
+        "name": "ucc28750-eval-board.md",
+        "rel_path": "resources",
+        "type": "plain-text",
+        "description": "Evaluation board reference documentation.",
+        "checksum": "sha256:ce5ce906320b9ad36ced5f09e015155f96aeb9e35b320dafab934708b38808b4"
+      }
+    },
+    "microcontroller-module": {
+      "LAUNCHXL2_TMS57012_RM46": {
+        "name": "LAUNCHXL2_TMS57012_RM46.pdf",
+        "rel_path": "resources/schematic_images",
+        "type": "plain-text",
+        "description": "Reference file for Launchxl2 tms57012 rm46.",
+        "checksum": "sha256:e49cac64e28c83f979c47685d8497ac6d2af0376ac5fdd47327a98551d93b002"
+      },
+      "TMS57012-launchpad-eval-board": {
+        "name": "TMS57012-launchpad-eval-board.md",
+        "rel_path": "resources",
+        "type": "plain-text",
+        "description": "Evaluation board reference documentation.",
+        "checksum": "sha256:38a5268e684659b927d183b907563e80b2acba118ee087da7658817b449b5a87"
+      },
+      "tms570ls1227-datasheet": {
+        "name": "tms570ls1227-datasheet.md",
+        "rel_path": "resources",
+        "type": "plain-text",
+        "description": "IC datasheet and technical specifications.",
+        "checksum": "sha256:8a9506f7078f7b3796b8e15ce374d5198c236b9228ee0ad0aacf80b295077f23"
+      },
+      "tms75012-reference-manual": {
+        "name": "tms75012-reference-manual.md",
+        "rel_path": "resources",
+        "type": "plain-text",
+        "description": "Tms75012 reference manual documentation.",
+        "checksum": "sha256:c116d2e120b23cdcd3c81394b9050d2a56acd4210e0023f4d71cf70dc4a43f38"
+      }
+    }
+  }
+}

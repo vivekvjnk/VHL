@@ -237,7 +237,72 @@ class VHLSystem:
         else:
             raise ValueError(f"Invalid zip path provided: {zip}")
 
-    def wait_for_event(self, event_type, timeout=30000):
+    def emit_event(self, event_type, payload=None):
+        """
+        Emits a WebSocket event directly from the browser's WebSocket connection.
+        
+        Args:
+            event_type (str): The type of event to emit.
+            payload (dict, optional): The payload for the event.
+        """
+        payload = payload or {}
+        print(f"[VHL Test] Emitting event: {event_type} with payload: {payload}")
+        payload_json = json.dumps(payload)
+        
+        # We use window.__VHL_LAST_WS__ which was injected by inject_ws_wrapper
+        self.page.evaluate(f"""
+            (async () => {{
+                if (window.__VHL_LAST_WS__ && window.__VHL_LAST_WS__.readyState === window.WebSocket.OPEN) {{
+                    const event = {{
+                        type: "{event_type}",
+                        source: "vhl_webui",
+                        payload: {payload_json},
+                        timestamp: new Date().toISOString()
+                    }};
+                    console.log("[VHL Test] Sending event via WS:", event);
+                    window.__VHL_LAST_WS__.send(JSON.stringify(event));
+                }} else {{
+                    console.error("[VHL Test] Cannot emit event: WebSocket not open or not found.", window.__VHL_LAST_WS__);
+                }}
+            }})();
+        """)
+
+    def trigger_archy(self, module_name):
+        """
+        Triggers the Archy pipeline for a specific module by emitting REFERENCE_UPLOADED.
+        
+        Args:
+            module_name (str): The name of the module to process.
+        """
+        # Safety check for WebSocket connectivity
+        self.page.wait_for_function(
+            "window.__VHL_LAST_WS__ && window.__VHL_LAST_WS__.readyState === window.WebSocket.OPEN", 
+            timeout=15000
+        )
+        
+        # Note: In the current AOSM, REFERENCE_UPLOADED triggers the BOOTSTRAP_PIPELINE
+        # We simulate this by providing the reference_id as the module name.
+        self.emit_event("REFERENCE_UPLOADED", {
+            "reference_id": module_name,
+            "reference_type": "image",
+            "filename": f"{module_name}_preprocessed.png"
+        })
+
+    def respond_to_hil(self, action, instructions=None):
+        """
+        Responds to a HIL_REQUEST.
+        
+        Args:
+            action (str): The action to take ('continue', 'retry').
+            instructions (str, optional): Additional instructions for retry.
+        """
+        payload = {"action": action}
+        if instructions:
+            payload["instructions"] = instructions
+            
+        self.emit_event("HUMAN_INPUT", payload)
+
+    def wait_for_event(self, event_type, timeout=30000, payload_filter=None):
         """
         Blocks execution until a specific WebSocket event type is intercepted.
         
@@ -256,6 +321,16 @@ class VHLSystem:
         while time.time() - start_time < timeout / 1000:
             for event in self.events:
                 if event.type == event_type:
+                    # Apply payload filter if provided
+                    if payload_filter:
+                        match = True
+                        for key, val in payload_filter.items():
+                            if event.payload.get(key) != val:
+                                match = False
+                                break
+                        if not match:
+                            continue
+                            
                     print(f"[VHL Test] Found event: {event_type}")
                     return event
             time.sleep(0.1) # Brief sleep to avoid high CPU
@@ -488,6 +563,11 @@ def managed_services():
     # 6. Start vhl-agent-backend
     print("[VHL Test] Starting vhl-agent-backend...")
     backend_env = os.environ.copy()
+    replay_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "archy", "resources", "e2e_conversations")
+    if os.path.exists(replay_dir):
+        backend_env["VHL_E2E_REPLAY_DIR"] = replay_dir
+        print(f"[VHL Test] Setting VHL_E2E_REPLAY_DIR to {replay_dir}")
+
     backend_process = subprocess.Popen(
         ["uv", "run", "aosm", temp_workspace],
         cwd=backend_dir,
@@ -543,8 +623,11 @@ def managed_services():
     subprocess.run(["docker", "compose", "down"], cwd=runtime_dir, capture_output=True)
 
     # 10. Remove temp workspace
-    print(f"[VHL Test] Removing temporary workspace: {temp_workspace}")
-    shutil.rmtree(temp_workspace, ignore_errors=True)
+    if os.getenv("PRESERVE_WORKSPACE") == "true":
+        print(f"[VHL Test] PRESERVE_WORKSPACE is true. Keeping: {temp_workspace}")
+    else:
+        print(f"[VHL Test] Removing temporary workspace: {temp_workspace}")
+        shutil.rmtree(temp_workspace, ignore_errors=True)
     
     print("[VHL Test] Environment cleanup COMPLETE.\n")
 

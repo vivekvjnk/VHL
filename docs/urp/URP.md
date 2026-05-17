@@ -292,9 +292,10 @@ Every implementation should expose:
 * emit(agent, event)
 * shutdown(agent)
 
+* state(agent) : inspect state of agent
+
 Optional:
 
-* inspect_state(agent)
 * checkpoint(agent)
 * restore(agent)
 

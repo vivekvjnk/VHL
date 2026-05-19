@@ -1,4 +1,6 @@
 import pytest
+import os
+import sqlite3
 
 @pytest.mark.e2e
 def test_create_project_flow(system):
@@ -30,6 +32,24 @@ def test_create_project_flow(system):
 
     # Step 5: Validate backend FS
     assert system.backend_has_structure(project_id, manifest)
+
+    # Step 5b: Validate Project Creation Evaluation in SQLite DB
+    db_path = os.path.join(system.workspace_path, project_id, ".vhl", "state.db")
+    assert os.path.exists(db_path), f"SQLite DB not found at {db_path}"
+    
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT op_name, author, status, payload FROM semantic_operations WHERE op_name='CREATE_PROJECT_EVAL'"
+        )
+        row = cursor.fetchone()
+        assert row is not None, "Semantic operation entry 'CREATE_PROJECT_EVAL' not found in database"
+        assert row[1] == "PROJECT_CREATION_EVALUATOR", f"Expected author 'PROJECT_CREATION_EVALUATOR', got '{row[1]}'"
+        assert row[2] == "SUCCESS", f"Project creation evaluation failed. Status: {row[2]}, Payload: {row[3]}"
+        print("[VHL Test] SQLite DB verified: Project Creation Evaluation entry found and is SUCCESS!")
+    finally:
+        conn.close()
 
     # Step 6: Wait for runtime completion
     runtime_msg = system.wait_for_event("DEV_SERVER_READY",timeout=60000) # Increased timeout for project creation flow

@@ -11,6 +11,7 @@ def test_archy_full_flow(system):
     """
     Test the full Archy workflow from project creation to SCUD generation and HIL review.
     """
+    module_name = "communication-bridge"
     # Step 1: Create Project
     logger.info("\n[Test] Step 1: Creating project...")
     system.clear_events()
@@ -31,44 +32,34 @@ def test_archy_full_flow(system):
     # Step 2: Trigger Archy
     # We trigger Archy for the bms-monitor-module which is included in the bms-project.zip
     logger.info("\n[Test] Step 2: Triggering Archy for bms-monitor-module...")
-    system.trigger_archy("bms-monitor-module")
+    system.trigger_archy(module_name)
 
     # Step 3: Monitor State Transitions
     logger.info("\n[Test] Step 3: Monitoring AOSM state transitions...")
     
     # Wait for WORKFLOW_COMPLETED event from VHL_AGENT_BACKEND indicating workflow 1 completion
-    workflow_event = system.wait_for_event("WORKFLOW_COMPLETED", timeout=300000, payload_filter={"workflow": "workflow_1", "module": "bms-monitor-module"})
+    workflow_event = system.wait_for_event("WORKFLOW_COMPLETED", timeout=300000, payload_filter={"workflow": "workflow_1", "module": module_name})
     assert workflow_event is not None
     logger.info("[Test] Received WORKFLOW_COMPLETED event for workflow_1. Proceeding to check for HIL request.")
-    # Wait for BOOTSTRAP_PIPELINE entry
-    # system.wait_for_event("STATE_TRANSITION", payload_filter={"to": "BOOTSTRAP_PIPELINE"})
-    # logger.info("[Test] AOSM entered BOOTSTRAP_PIPELINE.")
 
-    # Wait for TRIGGER_ARCHY entry
-    # system.wait_for_event("STATE_TRANSITION", payload_filter={"to": "TRIGGER_ARCHY"}, timeout=45000)
-    # logger.info("[Test] AOSM entered TRIGGER_ARCHY. Archy agent is running.")
+"""
+TODO
+====
+Following features are not yet validated for Archy 
+## 1. HIL interaction
+Current implementation of Archy URP instructs agent to consult user(experienced engineer) to resolve ambiguities.
+URP system uses "check_postcondition" method to determine if agent is either "finished" the task or "waiting" for user input.
+Orchestration layer relies on the state of URP agent(which in turn uses the post condition check as explained above) to decide the next step
 
-    # # Step 4: Wait for HIL Review (SCUD Generated)
-    # logger.info("\n[Test] Step 4: Waiting for Archy HIL request (SCUD generation complete)...")
-    # # Archy takes some time to process even with a stub, but with a real LLM it can take 1-2 minutes.
-    # hil_event = system.wait_for_event("HIL_REQUEST", timeout=600000, payload_filter={"reason": "ARCHY_REVIEW"})
-    
-    # payload = hil_event.payload
-    # assert hil_event is not None
-    # assert "scud_content" in payload
-    # assert len(payload["scud_content"]) > 100 # Basic sanity check for SCUD content
-    # logger.info(f"[Test] Received Archy HIL request. SCUD length: {len(payload['scud_content'])}")
+Happy path for this workflow is 
+- No HIL interaction
+- Archy finish scud generation without any errors
+- "check_postcondition" is successful
 
-    # # Step 5: Respond to HIL (Accept SCUD)
-    # logger.info("\n[Test] Step 5: Accepting SCUD and continuing...")
-    # system.respond_to_hil(action="continue")
+We've successfully validated the "Happy path" multiple times.
 
-    # # Step 6: Verify transition to TRIGGER_LIBRARIAN
-    # logger.info("\n[Test] Step 6: Verifying transition to Librarian...")
-    # system.wait_for_event("STATE_TRANSITION", payload_filter={"to": "TRIGGER_LIBRARIAN"}, timeout=30000)
-    # logger.info("[Test] AOSM entered TRIGGER_LIBRARIAN. Archy workflow successful!")
+HIL interaction path needs to be thoroughly validated.
+For this, following is the pre-requisite:
+- Module with sufficient ambiguity in input data so that Archy should raise concerns
 
-    # Final check: Workspace should have .conversations
-    # Note: Deep validation is already done by backend_has_structure if workspace_path is set
-    # but we can do a targeted check if needed.
-    
+"""

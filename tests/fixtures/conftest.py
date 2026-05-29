@@ -11,7 +11,10 @@ import shutil
 import socket
 import sys
 import sqlite3
+import logging
 from playwright.sync_api import sync_playwright
+
+logger = logging.getLogger(__name__)
 
 def is_port_open(port):
     """Checks if a local port is open and listening."""
@@ -80,23 +83,23 @@ class VHLSystem:
         Starts a background thread that connects to the VHL Runtime as an observer.
         """
         ws_url = self.config["VHL_RELAY_URL"].replace("http", "ws") + "/ws-agent"
-        print(f"[VHL Test] Connecting observer to: {ws_url}")
+        logger.info(f"[VHL Test] Connecting observer to: {ws_url}")
 
         def on_message(ws, message):
             try:
                 msg = json.loads(message)
                 self._handle_message(msg)
             except Exception as e:
-                print(f"[VHL Test] Observer failed to parse message: {e}")
+                logger.info(f"[VHL Test] Observer failed to parse message: {e}")
 
         def on_error(ws, error):
-            print(f"[VHL Test] Observer error: {error}")
+            logger.info(f"[VHL Test] Observer error: {error}")
 
         def on_close(ws, close_status_code, close_msg):
-            print(f"[VHL Test] Observer closed: {close_msg}")
+            logger.info(f"[VHL Test] Observer closed: {close_msg}")
 
         def on_open(ws):
-            print(f"[VHL Test] Observer connected. Identifying...")
+            logger.info(f"[VHL Test] Observer connected. Identifying...")
             ws.send(json.dumps({
                 "type": "IDENTIFY",
                 "payload": {"role": "vhl_test_observer"}
@@ -118,10 +121,10 @@ class VHLSystem:
         start = time.time()
         while time.time() - start < 5:
             if self._observer_ws.sock and self._observer_ws.sock.connected:
-                print("[VHL Test] Observer ready!")
+                logger.info("[VHL Test] Observer ready!")
                 return
             time.sleep(0.1)
-        print("[VHL Test] WARNING: Observer connection timed out.")
+        logger.info("[VHL Test] WARNING: Observer connection timed out.")
 
     def _setup_debug_listeners(self):
         """
@@ -130,9 +133,9 @@ class VHLSystem:
         This method pipes browser console logs, page errors, and failed 
         network requests to the Python stdout for easier debugging.
         """
-        self.page.on("console", lambda msg: print(f"[Browser Console] {msg.type}: {msg.text}"))
-        self.page.on("pageerror", lambda exc: print(f"[Browser Error] {exc}"))
-        self.page.on("requestfailed", lambda req: print(f"[Browser Request Failed] {req.method} {req.url} : {req.failure}"))
+        self.page.on("console", lambda msg: logger.info(f"[Browser Console] {msg.type}: {msg.text}"))
+        self.page.on("pageerror", lambda exc: logger.info(f"[Browser Error] {exc}"))
+        self.page.on("requestfailed", lambda req: logger.info(f"[Browser Request Failed] {req.method} {req.url} : {req.failure}"))
 
     def stop(self):
         """
@@ -140,7 +143,7 @@ class VHLSystem:
         """
         if self._observer_ws:
             self._observer_ws.close()
-        print("[VHL Test] Observer stopped.")
+        logger.info("[VHL Test] Observer stopped.")
 
     def inject_ws_wrapper(self):
         """
@@ -179,17 +182,17 @@ class VHLSystem:
             msg (dict): The captured JSON payload from the WebSocket.
         """
         if isinstance(msg, dict) and "type" in msg:
-            print(f"[VHL Event : {msg.get('timestamp')}] {msg.get('source', 'unknown')}: {msg.get('type')}")
+            logger.info(f"[VHL Event : {msg.get('timestamp')}] {msg.get('source', 'unknown')}: {msg.get('type')}")
             # If message type is ERROR log the entire payload for debugging
             if msg.get("type") == "ERROR":
-                print(f"[VHL Event] ERROR payload: {json.dumps(msg, indent=2)}")
+                logger.info(f"[VHL Event] ERROR payload: {json.dumps(msg, indent=2)}")
             self.events.append(Event(msg))
 
     def clear_events(self):
         """
         Clears the captured events list. Useful before triggering a new action.
         """
-        print(f"[VHL Test] Clearing {len(self.events)} captured events.")
+        logger.info(f"[VHL Test] Clearing {len(self.events)} captured events.")
         self.events = []
 
     def create_project(self, name, zip=None):
@@ -211,7 +214,7 @@ class VHLSystem:
         )
         
         if zip and os.path.exists(zip):
-            print(f"[VHL Test] Detected local zip file: {zip}. Uploading via WebUI...")
+            logger.info(f"[VHL Test] Detected local zip file: {zip}. Uploading via WebUI...")
             import base64
             with open(zip, "rb") as f:
                 content = base64.b64encode(f.read()).decode()
@@ -246,7 +249,7 @@ class VHLSystem:
             payload (dict, optional): The payload for the event.
         """
         payload = payload or {}
-        print(f"[VHL Test] Emitting event: {event_type} with payload: {payload}")
+        logger.info(f"[VHL Test] Emitting event: {event_type} with payload: {payload}")
         payload_json = json.dumps(payload)
         
         # We use window.__VHL_LAST_WS__ which was injected by inject_ws_wrapper
@@ -316,7 +319,7 @@ class VHLSystem:
         Raises:
             TimeoutError: If the event is not captured within the timeout.
         """
-        print(f"[VHL Test] Waiting for event: {event_type} (timeout={timeout}ms)")
+        logger.info(f"[VHL Test] Waiting for event: {event_type} (timeout={timeout}ms)")
         start_time = time.time()
         while time.time() - start_time < timeout / 1000:
             for event in self.events:
@@ -331,13 +334,13 @@ class VHLSystem:
                         if not match:
                             continue
                             
-                    print(f"[VHL Test] Found event: {event_type}")
+                    logger.info(f"[VHL Test] Found event: {event_type}")
                     return event
             time.sleep(0.1) # Brief sleep to avoid high CPU
             self.page.wait_for_timeout(500)
         
         current_event_types = [e.type for e in self.events]
-        print(f"[VHL Test] TIMEOUT waiting for {event_type}. Current events: {current_event_types}")
+        logger.info(f"[VHL Test] TIMEOUT waiting for {event_type}. Current events: {current_event_types}")
         raise TimeoutError(f"Event {event_type} not received within {timeout}ms. Current events: {current_event_types}")
 
     def get_event(self, event_type):
@@ -368,7 +371,7 @@ class VHLSystem:
             bool: True if the structure is valid, False otherwise.
         """
         if not self.workspace_path:
-            print("[VHL Test] Workspace path NOT SET in system orchestrator. Skipping deep validation.")
+            logger.info("[VHL Test] Workspace path NOT SET in system orchestrator. Skipping deep validation.")
             return True
 
         project_path = os.path.join(self.workspace_path, project_id)
@@ -376,7 +379,7 @@ class VHLSystem:
         # 1. Validate SQLite Semantic Ledger
         db_path = os.path.join(project_path, ".vhl", "state.db")
         if not os.path.exists(db_path):
-            print(f"[VHL Test] SQLite DB NOT FOUND at: {db_path}")
+            logger.info(f"[VHL Test] SQLite DB NOT FOUND at: {db_path}")
             return False
         
         try:
@@ -387,7 +390,7 @@ class VHLSystem:
             cursor.execute("SELECT op_name, status FROM semantic_operations WHERE op_name='INITIALIZE'")
             row = cursor.fetchone()
             if not row or row[1] != "SUCCESS":
-                print(f"[VHL Test] INITIALIZE operation NOT FOUND or failed in DB")
+                logger.info(f"[VHL Test] INITIALIZE operation NOT FOUND or failed in DB")
                 conn.close()
                 return False
             
@@ -395,35 +398,35 @@ class VHLSystem:
             cursor.execute("SELECT COUNT(*) FROM project_modules")
             count = cursor.fetchone()[0]
             if count == 0:
-                print("[VHL Test] No modules found in DB")
+                logger.info("[VHL Test] No modules found in DB")
                 conn.close()
                 return False
             
             conn.close()
-            print("[VHL Test] SQLite Semantic Ledger VALIDATED.")
+            logger.info("[VHL Test] SQLite Semantic Ledger VALIDATED.")
         except Exception as e:
-            print(f"[VHL Test] Error validating SQLite DB: {e}")
+            logger.info(f"[VHL Test] Error validating SQLite DB: {e}")
             return False
 
         # 2. Validate Git Repository
         git_path = os.path.join(project_path, ".git")
         if not os.path.exists(git_path):
-            print(f"[VHL Test] Git directory NOT FOUND at: {git_path}")
+            logger.info(f"[VHL Test] Git directory NOT FOUND at: {git_path}")
             return False
-        print("[VHL Test] Git Repository VALIDATED.")
+        logger.info("[VHL Test] Git Repository VALIDATED.")
 
         # 3. Validate .gitignore
         gitignore_path = os.path.join(project_path, ".gitignore")
         if not os.path.exists(gitignore_path):
-            print(f"[VHL Test] .gitignore NOT FOUND at: {gitignore_path}")
+            logger.info(f"[VHL Test] .gitignore NOT FOUND at: {gitignore_path}")
             return False
         
         with open(gitignore_path, 'r') as f:
             content = f.read()
             if ".vhl/" not in content:
-                print("[VHL Test] .vhl/ directory NOT IGNORED in .gitignore")
+                logger.info("[VHL Test] .vhl/ directory NOT IGNORED in .gitignore")
                 return False
-        print("[VHL Test] .gitignore VALIDATED.")
+        logger.info("[VHL Test] .gitignore VALIDATED.")
 
         # 4. Validate Manifest (Artifact Space)
         # Basic check for expected modules in the Git-native manifest
@@ -434,10 +437,10 @@ class VHLSystem:
         ]
         for mod in expected_modules:
             if mod not in actual_manifest:
-                print(f"[VHL Test] Manifest MISSING expected module: {mod}")
+                logger.info(f"[VHL Test] Manifest MISSING expected module: {mod}")
                 return False
         
-        print(f"[VHL Test] Backend manifest structure VALIDATED for {project_id}.")
+        logger.info(f"[VHL Test] Backend manifest structure VALIDATED for {project_id}.")
         return True
 
     def runtime_initialized(self, actual_manifest=None):
@@ -479,19 +482,19 @@ class VHLSystem:
         # Check all modules exist and are dictionaries
         for module in expected_modules:
             if module not in actual_manifest:
-                print(f"[VHL Test] Runtime manifest MISSING module: {module}")
+                logger.info(f"[VHL Test] Runtime manifest MISSING module: {module}")
                 return False
             if not isinstance(actual_manifest[module], dict):
-                print(f"[VHL Test] Runtime manifest key {module} expected to be a dict, but got {type(actual_manifest[module])}")
+                logger.info(f"[VHL Test] Runtime manifest key {module} expected to be a dict, but got {type(actual_manifest[module])}")
                 return False
         
         # Check all generated files exist
         for gen_file in expected_generated_files:
             if gen_file not in actual_manifest:
-                print(f"[VHL Test] Runtime manifest MISSING generated file: {gen_file}")
+                logger.info(f"[VHL Test] Runtime manifest MISSING generated file: {gen_file}")
                 return False
             if not isinstance(actual_manifest[gen_file], str):
-                print(f"[VHL Test] Runtime manifest key {gen_file} expected to be a hash string, but got {type(actual_manifest[gen_file])}")
+                logger.info(f"[VHL Test] Runtime manifest key {gen_file} expected to be a hash string, but got {type(actual_manifest[gen_file])}")
                 return False
 
         # Ensure no unexpected top-level keys
@@ -499,10 +502,10 @@ class VHLSystem:
         actual_keys = set(actual_manifest.keys())
         unexpected = actual_keys - all_expected
         if unexpected:
-            print(f"[VHL Test] Runtime manifest has UNEXPECTED keys: {unexpected}")
+            logger.info(f"[VHL Test] Runtime manifest has UNEXPECTED keys: {unexpected}")
             return False
 
-        print("[VHL Test] Runtime manifest structure VALIDATED.")
+        logger.info("[VHL Test] Runtime manifest structure VALIDATED.")
         return True
 
     def webui_reloaded(self):
@@ -517,7 +520,7 @@ class VHLSystem:
         """
         current_url = self.page.url
         is_reloaded = "#file=" in current_url
-        print(f"[VHL Test] Checking WebUI reload state: {'RELOADED' if is_reloaded else 'NOT_RELOADED'} (URL: {current_url})")
+        logger.info(f"[VHL Test] Checking WebUI reload state: {'RELOADED' if is_reloaded else 'NOT_RELOADED'} (URL: {current_url})")
         return is_reloaded
 
 @pytest.fixture(scope="session")
@@ -529,44 +532,44 @@ def managed_services():
     runtime_dir = os.path.join(root_dir, "vhl-runtime")
     backend_dir = os.path.join(root_dir, "vhl-agent-backend")
     
-    print("\n[VHL Test] --- PRE-TEST CLEANUP ---")
+    logger.info("\n[VHL Test] --- PRE-TEST CLEANUP ---")
     
     # 1. Kill any existing aosm processes
     try:
         subprocess.run(["pkill", "-f", "aosm"], stderr=subprocess.DEVNULL)
-        print("[VHL Test] Cleaned up existing aosm processes.")
+        logger.info("[VHL Test] Cleaned up existing aosm processes.")
     except Exception:
         pass
 
     # 2. Stop existing docker containers
-    print("[VHL Test] Stopping existing vhl-runtime containers...")
+    logger.info("[VHL Test] Stopping existing vhl-runtime containers...")
     subprocess.run(["docker", "compose", "down"], cwd=runtime_dir, capture_output=True)
     
-    print("\n[VHL Test] --- STARTING SERVICES ---")
+    logger.info("\n[VHL Test] --- STARTING SERVICES ---")
     
     # 3. Start vhl-runtime
-    print("[VHL Test] Starting vhl-runtime via docker compose...")
+    logger.info("[VHL Test] Starting vhl-runtime via docker compose...")
     subprocess.run(["docker", "compose", "up", "-d"], cwd=runtime_dir, check=True)
     
     # 4. Wait for runtime ports
-    print("[VHL Test] Waiting for runtime ports (1080, 3020)...")
+    logger.info("[VHL Test] Waiting for runtime ports (1080, 3020)...")
     if not wait_for_port(1080, timeout=45):
         raise RuntimeError("vhl-runtime (port 1080) failed to start.")
     if not wait_for_port(3020, timeout=45):
         raise RuntimeError("vhl-runtime (port 3020) failed to start.")
-    print("[VHL Test] vhl-runtime is READY.")
+    logger.info("[VHL Test] vhl-runtime is READY.")
 
     # 5. Create temporary workspace
     temp_workspace = tempfile.mkdtemp(prefix="vhl_e2e_workspace_")
-    print(f"[VHL Test] Created temporary workspace: {temp_workspace}")
+    logger.info(f"[VHL Test] Created temporary workspace: {temp_workspace}")
 
     # 6. Start vhl-agent-backend
-    print("[VHL Test] Starting vhl-agent-backend...")
+    logger.info("[VHL Test] Starting vhl-agent-backend...")
     backend_env = os.environ.copy()
     replay_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "archy", "resources", "e2e_conversations")
     if os.path.exists(replay_dir):
         backend_env["VHL_E2E_REPLAY_DIR"] = replay_dir
-        print(f"[VHL Test] Setting VHL_E2E_REPLAY_DIR to {replay_dir}")
+        logger.info(f"[VHL Test] Setting VHL_E2E_REPLAY_DIR to {replay_dir}")
 
     backend_process = subprocess.Popen(
         ["uv", "run", "aosm", temp_workspace],
@@ -584,6 +587,7 @@ def managed_services():
                 if line:
                     sys.stdout.write(f"{prefix} {line}")
                     sys.stdout.flush()
+                    logger.info(f"{prefix} {line.strip()}")
         except Exception:
             pass
         finally:
@@ -598,17 +602,17 @@ def managed_services():
     if backend_process.poll() is not None:
         raise RuntimeError(f"vhl-agent-backend failed to start immediately.")
     
-    print("[VHL Test] vhl-agent-backend process started.")
+    logger.info("[VHL Test] vhl-agent-backend process started.")
 
     yield {
         "workspace_path": temp_workspace,
         "backend_process": backend_process
     }
 
-    print("\n[VHL Test] --- TEARDOWN ---")
+    logger.info("\n[VHL Test] --- TEARDOWN ---")
     
     # 8. Stop backend
-    print("[VHL Test] Terminating vhl-agent-backend...")
+    logger.info("[VHL Test] Terminating vhl-agent-backend...")
     try:
         os.killpg(os.getpgid(backend_process.pid), signal.SIGTERM)
         backend_process.wait(timeout=5)
@@ -619,17 +623,17 @@ def managed_services():
             pass
 
     # 9. Stop runtime
-    print("[VHL Test] Stopping vhl-runtime containers...")
+    logger.info("[VHL Test] Stopping vhl-runtime containers...")
     subprocess.run(["docker", "compose", "down"], cwd=runtime_dir, capture_output=True)
 
     # 10. Remove temp workspace
     if os.getenv("PRESERVE_WORKSPACE") == "true":
-        print(f"[VHL Test] PRESERVE_WORKSPACE is true. Keeping: {temp_workspace}")
+        logger.info(f"[VHL Test] PRESERVE_WORKSPACE is true. Keeping: {temp_workspace}")
     else:
-        print(f"[VHL Test] Removing temporary workspace: {temp_workspace}")
+        logger.info(f"[VHL Test] Removing temporary workspace: {temp_workspace}")
         shutil.rmtree(temp_workspace, ignore_errors=True)
     
-    print("[VHL Test] Environment cleanup COMPLETE.\n")
+    logger.info("[VHL Test] Environment cleanup COMPLETE.\n")
 
 @pytest.fixture(scope="session")
 def test_config():
@@ -652,7 +656,7 @@ def system(test_config, managed_services):
     """
     The primary pytest fixture providing an initialized VHLSystem instance.
     """
-    print(f"\n[VHL Test] Initializing system fixture...")
+    logger.info(f"\n[VHL Test] Initializing system fixture...")
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context()
@@ -662,45 +666,45 @@ def system(test_config, managed_services):
         vhl_system.inject_ws_wrapper()
         
         target_url = test_config["VHL_WEBUI_URL"]
-        print(f"[VHL Test] Navigating to: {target_url}")
+        logger.info(f"[VHL Test] Navigating to: {target_url}")
         
         try:
             page.goto(target_url, wait_until="load", timeout=45000)
-            print(f"[VHL Test] Page loaded. Waiting for test hooks...")
+            logger.info(f"[VHL Test] Page loaded. Waiting for test hooks...")
             
             page.wait_for_function(
                 "window.__VHL_TEST_HOOKS__ && window.__VHL_TEST_HOOKS__.createProject", 
                 timeout=15000
             )
-            print(f"[VHL Test] Hooks ready!")
+            logger.info(f"[VHL Test] Hooks ready!")
             
             page.wait_for_function(
                 "window.__VHL_LAST_WS__ && window.__VHL_LAST_WS__.readyState === window.WebSocket.OPEN", 
                 timeout=15000
             )
-            print(f"[VHL Test] WebSocket connected and ready!")
+            logger.info(f"[VHL Test] WebSocket connected and ready!")
             
             # Wait for backend identification
-            print(f"[VHL Test] Waiting for vhl_agent_backend to connect to relay...")
+            logger.info(f"[VHL Test] Waiting for vhl_agent_backend to connect to relay...")
             backend_ready = False
             start_wait = time.time()
             while time.time() - start_wait < 30:
                 if any(getattr(e, "source", None) == "vhl_agent_backend" or (e.type == "IDENTIFY" and getattr(e, "payload", {}).get("role") == "vhl_agent_backend") for e in vhl_system.events):
-                    print("[VHL Test] vhl_agent_backend connected!")
+                    logger.info("[VHL Test] vhl_agent_backend connected!")
                     backend_ready = True
                     break
                 time.sleep(1)
             
             if not backend_ready:
-                print("[VHL Test] WARNING: vhl_agent_backend did not connect to relay in time.")
+                logger.info("[VHL Test] WARNING: vhl_agent_backend did not connect to relay in time.")
             
             yield vhl_system
             
         except Exception as e:
-            print(f"[VHL Test] FIXTURE SETUP FAILED: {str(e)}")
+            logger.info(f"[VHL Test] FIXTURE SETUP FAILED: {str(e)}")
             page.screenshot(path="debug_screenshot.png")
             raise e
         finally:
             vhl_system.stop()
             browser.close()
-            print(f"[VHL Test] Browser closed.\n")
+            logger.info(f"[VHL Test] Browser closed.\n")

@@ -1,3 +1,4 @@
+import time
 import pytest
 import os
 import shutil
@@ -43,6 +44,11 @@ def librarian_project(system):
     # Wait for the runtime to settle/be ready (DEV_SERVER_READY)
     system.wait_for_event("DEV_SERVER_READY", timeout=60000)
     logger.info("Dev server is ready after project load.")
+    
+    time.sleep(5)
+    
+    system.emit_event( event_type="MESSAGE_TO_AGENT", target="vhl_agent_backend" ,payload={"target_agent": "communication-bridge.librarian", "message": "Hello Librarian, project is set up! Please read the .scud document and import non trivial components."})
+    time.sleep(600)  # simply wait 10 minutes for librarian to process
 
     return project_id
 

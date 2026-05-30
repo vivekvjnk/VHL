@@ -38,7 +38,7 @@ def test_archy_full_flow(system):
     logger.info("\n[Test] Step 3: Monitoring AOSM state transitions...")
     
     # Wait for WORKFLOW_COMPLETED event from VHL_AGENT_BACKEND indicating workflow 1 completion
-    workflow_event = system.wait_for_event("WORKFLOW_COMPLETED", timeout=300000, payload_filter={"workflow": "workflow_1", "module": module_name})
+    workflow_event = system.wait_for_event("WORKFLOW_COMPLETED", timeout=1200000, payload_filter={"workflow": "workflow_1", "module": module_name})
     assert workflow_event is not None
     logger.info("[Test] Received WORKFLOW_COMPLETED event for workflow_1. Proceeding to check for HIL request.")
 

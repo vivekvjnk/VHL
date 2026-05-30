@@ -240,7 +240,7 @@ class VHLSystem:
         else:
             raise ValueError(f"Invalid zip path provided: {zip}")
 
-    def emit_event(self, event_type, payload=None):
+    def emit_event(self, event_type, payload=None,target="vhl_agent_backend"):
         """
         Emits a WebSocket event directly from the browser's WebSocket connection.
         
@@ -259,6 +259,7 @@ class VHLSystem:
                     const event = {{
                         type: "{event_type}",
                         source: "vhl_webui",
+                        target: "{target}",
                         payload: {payload_json},
                         timestamp: new Date().toISOString()
                     }};

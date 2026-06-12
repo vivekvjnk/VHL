@@ -14,6 +14,12 @@ import sqlite3
 import logging
 from playwright.sync_api import sync_playwright
 
+# Configure the root logger before creating your local logger
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(message)s'  # <-- Only keeps the actual log message
+)
+
 logger = logging.getLogger(__name__)
 
 def is_port_open(port):
@@ -533,6 +539,18 @@ def managed_services():
     runtime_dir = os.path.join(root_dir, "vhl-runtime")
     backend_dir = os.path.join(root_dir, "vhl-agent-backend")
     
+    def stream_logs(pipe, prefix):
+        try:
+            for line in iter(pipe.readline, ''):
+                if line:
+                    sys.stdout.write(f"{prefix} {line}")
+                    sys.stdout.flush()
+                    logger.info(f"{prefix} {line.strip()}")
+        except Exception:
+            pass
+        finally:
+            pipe.close()
+
     logger.info("\n[VHL Test] --- PRE-TEST CLEANUP ---")
     
     # 1. Kill any existing aosm processes
@@ -552,6 +570,18 @@ def managed_services():
     logger.info("[VHL Test] Starting vhl-runtime via docker compose...")
     subprocess.run(["docker", "compose", "up", "-d"], cwd=runtime_dir, check=True)
     
+    runtime_log_process = subprocess.Popen(
+        ["docker", "compose", "logs", "-f"],
+        cwd=runtime_dir,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        preexec_fn=os.setsid
+    )
+    runtime_log_thread = threading.Thread(target=stream_logs, args=(runtime_log_process.stdout, "[Runtime]"))
+    runtime_log_thread.daemon = True
+    runtime_log_thread.start()
+    
     # 4. Wait for runtime ports
     logger.info("[VHL Test] Waiting for runtime ports (1080, 3020)...")
     if not wait_for_port(1080, timeout=45):
@@ -567,6 +597,12 @@ def managed_services():
     # 6. Start vhl-agent-backend
     logger.info("[VHL Test] Starting vhl-agent-backend...")
     backend_env = os.environ.copy()
+    backend_env["COLUMNS"] = "1000"
+    backend_env["TERM"] = "dumb"
+    backend_env["PYTHONUNBUFFERED"] = "1"
+    backend_env["LOG_AUTO_CONFIG"] = "false"
+    backend_env["LOG_RICH_TRACEBACKS"] = "false"
+    backend_env["OPENHANDS_SUPPRESS_BANNER"] = "1"
     replay_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "archy", "resources", "e2e_conversations")
     if os.path.exists(replay_dir):
         backend_env["VHL_E2E_REPLAY_DIR"] = replay_dir
@@ -581,18 +617,6 @@ def managed_services():
         text=True,
         preexec_fn=os.setsid
     )
-
-    def stream_logs(pipe, prefix):
-        try:
-            for line in iter(pipe.readline, ''):
-                if line:
-                    sys.stdout.write(f"{prefix} {line}")
-                    sys.stdout.flush()
-                    logger.info(f"{prefix} {line.strip()}")
-        except Exception:
-            pass
-        finally:
-            pipe.close()
 
     log_thread = threading.Thread(target=stream_logs, args=(backend_process.stdout, "[Backend]"))
     log_thread.daemon = True
@@ -625,6 +649,11 @@ def managed_services():
 
     # 9. Stop runtime
     logger.info("[VHL Test] Stopping vhl-runtime containers...")
+    try:
+        os.killpg(os.getpgid(runtime_log_process.pid), signal.SIGTERM)
+        runtime_log_process.wait(timeout=5)
+    except Exception:
+        pass
     subprocess.run(["docker", "compose", "down"], cwd=runtime_dir, capture_output=True)
 
     # 10. Remove temp workspace

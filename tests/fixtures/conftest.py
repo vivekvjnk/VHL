@@ -603,11 +603,7 @@ def managed_services():
     backend_env["LOG_AUTO_CONFIG"] = "false"
     backend_env["LOG_RICH_TRACEBACKS"] = "false"
     backend_env["OPENHANDS_SUPPRESS_BANNER"] = "1"
-    replay_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "archy", "resources", "e2e_conversations")
-    if os.path.exists(replay_dir):
-        backend_env["VHL_E2E_REPLAY_DIR"] = replay_dir
-        logger.info(f"[VHL Test] Setting VHL_E2E_REPLAY_DIR to {replay_dir}")
-
+    
     backend_process = subprocess.Popen(
         ["uv", "run", "aosm", temp_workspace],
         cwd=backend_dir,

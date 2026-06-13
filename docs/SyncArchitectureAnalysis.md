@@ -1,7 +1,7 @@
 # Architecture Analysis: Stable Circuit Synchronization & System Extensibility
 
 ## 1. Executive Summary
-The VHL synchronization architecture has been evolved from a purely agent-driven model to an integrated, event-driven system. By moving the synchronization trigger for the **StableCircuit** and the newly introduced **EvaluationOutput** resource to the VAP (Virtual Assessment Platform) decision phase, the system ensures atomicity between the runtime's local file commitment and the agent's view of the project state.
+The VHL synchronization architecture has been evolved from a purely agent-driven model to an integrated, event-driven system. By moving the synchronization trigger for the **StableCircuit** and the newly introduced **CompiledCircuit** resource to the VAP (Virtual Assessment Platform) decision phase, the system ensures atomicity between the runtime's local file commitment and the agent's view of the project state.
 
 ## 2. Analysis of the Implementation
 
@@ -16,13 +16,13 @@ Previously, the Agent Backend (specifically the AOSM) was responsible for both p
 - **Flow**:
   1. Agent sends `VAP_DECISION: ACCEPT`.
   2. Runtime performs `COWWorkspaceManager.commit()`.
-  3. Runtime immediately emits `SYNC_TRIGGER` for `StableCircuit` and `EvaluationOutput`.
+  3. Runtime immediately emits `SYNC_TRIGGER` for `StableCircuit` and `CompiledCircuit`.
   4. Agent waits for `SYNC_COMPLETE`.
 
 ### 2.3 Authoritative Resource Roles
 The system now clearly distinguishes between two types of resources:
 - **Agent-Authoritative**: (e.g., `Circuit`, `StableCircuit`). The backend generates the code; the runtime validates and applies it.
-- **Runtime-Authoritative**: (e.g., `Library`, `EvaluationOutput`). The runtime generates artifacts (like `circuit.json` or evaluation logs); the agent pulls them for its internal reasoning.
+- **Runtime-Authoritative**: (e.g., `Library`, `CompiledCircuit`). The runtime generates artifacts (like `circuit.json` or evaluation logs); the agent pulls them for its internal reasoning.
 
 ## 3. Architecture Extensibility
 
@@ -66,7 +66,7 @@ sequenceDiagram
         R-->>A: HASH_RESPONSE
         Note over A,R: Compare Hashes
     and Sync Eval Output (Data Transfer)
-        R->>A: SYNC_TRIGGER (EvaluationOutput)
+        R->>A: SYNC_TRIGGER (CompiledCircuit)
         A->>R: UPLOAD_REQUEST (Runtime is authoritative)
         R->>S: Store dist/ as ZIP
         R->>A: UPLOAD_PROPOSAL (blob_id)
@@ -77,4 +77,4 @@ sequenceDiagram
 ```
 
 ## 5. Conclusion
-The current architecture is **highly decoupled** and **bi-directionally authoritative**. By leveraging the sync protocol for state validation (StableCircuit) and data transfer (EvaluationOutput) simultaneously, we have created a robust framework. Adding new features now requires minimal boilerplate, primarily focusing on path resolution and ownership definition.
+The current architecture is **highly decoupled** and **bi-directionally authoritative**. By leveraging the sync protocol for state validation (StableCircuit) and data transfer (CompiledCircuit) simultaneously, we have created a robust framework. Adding new features now requires minimal boilerplate, primarily focusing on path resolution and ownership definition.

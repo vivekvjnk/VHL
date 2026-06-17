@@ -345,10 +345,10 @@ class VHLSystem:
             logger.info("[VHL Test] Workspace path NOT SET in system orchestrator. Skipping deep validation.")
             return True
 
-        project_path = os.path.join(self.workspace_path, project_id)
+        project_path = os.path.join(self.workspace_path, f"{project_id}_root",project_id)
         
         # 1. Validate SQLite Semantic Ledger
-        db_path = os.path.join(project_path, ".vhl", "state.db")
+        db_path = os.path.join(project_path,  ".vhl", "state.db")
         if not os.path.exists(db_path):
             logger.info(f"[VHL Test] SQLite DB NOT FOUND at: {db_path}")
             return False

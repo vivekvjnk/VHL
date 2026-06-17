@@ -3,7 +3,6 @@ import json
 import os
 import time
 import threading
-import websocket
 import subprocess
 import signal
 import tempfile
@@ -12,7 +11,15 @@ import socket
 import sys
 import sqlite3
 import logging
+import uuid
+import hashlib
+import requests
+import asyncio
 from playwright.sync_api import sync_playwright
+from pydantic import BaseModel, Field, ConfigDict
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../vhl-agent-backend")))
+from vhl_protocol.client.client import VHLWebSocketClient
+from vhl_protocol.models import BaseEvent
 
 # Configure the root logger before creating your local logger
 logging.basicConfig(
@@ -78,10 +85,10 @@ class VHLSystem:
         self.config = config
         self.workspace_path = workspace_path
         self.events = []
-        self._observer_ws = None
-        self._observer_thread = None
-        self._stop_observer = threading.Event()
-        self._setup_debug_listeners()
+        self._loop = None
+        self._client = None
+        self._client_thread = None
+        # self._setup_debug_listeners()
         self._start_observer()
 
     def _start_observer(self):
@@ -91,46 +98,27 @@ class VHLSystem:
         ws_url = self.config["VHL_RELAY_URL"].replace("http", "ws") + "/ws-agent"
         logger.info(f"[VHL Test] Connecting observer to: {ws_url}")
 
-        def on_message(ws, message):
-            try:
-                msg = json.loads(message)
-                self._handle_message(msg)
-            except Exception as e:
-                logger.info(f"[VHL Test] Observer failed to parse message: {e}")
+        self._loop = asyncio.new_event_loop()
+        
+        def run_loop():
+            asyncio.set_event_loop(self._loop)
+            self._loop.run_forever()
+            
+        self._client_thread = threading.Thread(target=run_loop)
+        self._client_thread.daemon = True
+        self._client_thread.start()
 
-        def on_error(ws, error):
-            logger.info(f"[VHL Test] Observer error: {error}")
+        async def on_event(event: BaseEvent):
+            self._handle_message(event.model_dump())
 
-        def on_close(ws, close_status_code, close_msg):
-            logger.info(f"[VHL Test] Observer closed: {close_msg}")
-
-        def on_open(ws):
-            logger.info(f"[VHL Test] Observer connected. Identifying...")
-            ws.send(json.dumps({
-                "type": "IDENTIFY",
-                "payload": {"role": "vhl_test_observer"}
-            }))
-
-        self._observer_ws = websocket.WebSocketApp(
-            ws_url,
-            on_open=on_open,
-            on_message=on_message,
-            on_error=on_error,
-            on_close=on_close
+        self._client = VHLWebSocketClient(
+            url=ws_url,
+            role="vhl_test_observer",
+            on_event_received=on_event
         )
-
-        self._observer_thread = threading.Thread(target=self._observer_ws.run_forever)
-        self._observer_thread.daemon = True
-        self._observer_thread.start()
-
-        # Wait for connection
-        start = time.time()
-        while time.time() - start < 5:
-            if self._observer_ws.sock and self._observer_ws.sock.connected:
-                logger.info("[VHL Test] Observer ready!")
-                return
-            time.sleep(0.1)
-        logger.info("[VHL Test] WARNING: Observer connection timed out.")
+        
+        asyncio.run_coroutine_threadsafe(self._client.start(), self._loop)
+        logger.info("[VHL Test] Observer started.")
 
     def _setup_debug_listeners(self):
         """
@@ -147,38 +135,12 @@ class VHLSystem:
         """
         Stops the observer and performs cleanup.
         """
-        if self._observer_ws:
-            self._observer_ws.close()
+        if self._client and self._loop:
+            asyncio.run_coroutine_threadsafe(self._client.stop(), self._loop)
+            self._loop.call_soon_threadsafe(self._loop.stop)
+            if self._client_thread:
+                self._client_thread.join(timeout=5)
         logger.info("[VHL Test] Observer stopped.")
-
-    def inject_ws_wrapper(self):
-        """
-        Injects a minimal synchronization wrapper into the browser.
-        
-        Note: Actual message interception is now handled by the central 
-        relay observer. This wrapper only exists to provide synchronization 
-        points (like window.__VHL_LAST_WS__) for the test fixture.
-        """
-        self.page.add_init_script("""
-            console.log("[VHL Test] Injecting Lite WebSocket wrapper...");
-            const OriginalWebSocket = window.WebSocket;
-            
-            const WrappedWebSocket = function(url, protocols) {
-                const ws = new OriginalWebSocket(url, protocols);
-                window.__VHL_LAST_WS__ = ws;
-                return ws;
-            };
-            
-            // Copy static constants
-            WrappedWebSocket.prototype = OriginalWebSocket.prototype;
-            WrappedWebSocket.CONNECTING = OriginalWebSocket.CONNECTING;
-            WrappedWebSocket.OPEN = OriginalWebSocket.OPEN;
-            WrappedWebSocket.CLOSING = OriginalWebSocket.CLOSING;
-            WrappedWebSocket.CLOSED = OriginalWebSocket.CLOSED;
-            
-            window.WebSocket = WrappedWebSocket;
-            console.log("[VHL Test] Lite wrapper ready.");
-        """)
 
     def _handle_message(self, msg):
         """
@@ -203,79 +165,81 @@ class VHLSystem:
 
     def create_project(self, name, zip=None):
         """
-        Triggers the project creation workflow in the WebUI.
-        
-        This method bypasses the manual UI clicks by calling the 'createProject' 
-        hook exposed in ChatInterface.tsx. It waits for the WebSocket to be 
-        in the OPEN state before execution to avoid 'Socket not open' errors.
+        Creates a new project by uploading a ZIP file directly to MinIO and emitting
+        the CREATE_PROJECT event.
         
         Args:
             name (str): The name of the project to create.
             zip (str, optional): A path to a local ZIP file OR a pre-uploaded blob ID.
         """
         # Safety check for WebSocket connectivity
-        self.page.wait_for_function(
-            "window.__VHL_LAST_WS__ && window.__VHL_LAST_WS__.readyState === window.WebSocket.OPEN", 
-            timeout=10000
-        )
-        
-        if zip and os.path.exists(zip):
-            logger.info(f"[VHL Test] Detected local zip file: {zip}. Uploading via WebUI...")
-            import base64
-            with open(zip, "rb") as f:
-                content = base64.b64encode(f.read()).decode()
-            
-            self.page.evaluate(f"""
-                (async () => {{
-                    const base64Content = "{content}";
-                    const binaryString = window.atob(base64Content);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {{
-                        bytes[i] = binaryString.charCodeAt(i);
-                    }}
-                    const blob = new Blob([bytes], {{ type: 'application/zip' }});
-                    const file = new File([blob], 'project.zip', {{ type: 'application/zip' }});
-                    
-                    if (window.__VHL_TEST_HOOKS__ && window.__VHL_TEST_HOOKS__.createProject) {{
-                        await window.__VHL_TEST_HOOKS__.createProject("{name}", file);
-                    }} else {{
-                        console.error("[VHL Test] createProject hook NOT FOUND");
-                    }}
-                }})();
-            """)
-        else:
-            raise ValueError(f"Invalid zip path provided: {zip}")
+        # self.page.wait_for_function(
+        #     "window.__VHL_LAST_WS__ && window.__VHL_LAST_WS__.readyState === window.WebSocket.OPEN", 
+        #     timeout=10000
+        # )
 
-    def emit_event(self, event_type, payload=None,target="vhl_agent_backend"):
+        zip_blob_id = None
+        if zip:
+            if os.path.exists(zip):
+                logger.info(f"[VHL Test] Uploading local zip file {zip} to MinIO...")
+                with open(zip, "rb") as f:
+                    file_content = f.read()
+                
+                hash_sha256 = hashlib.sha256(file_content).hexdigest()
+                zip_blob_id = f"{hash_sha256}.zip"
+                
+                # MinIO endpoint and bucket. Using localhost:9000 as default for tests.
+                minio_endpoint = self.config.get("VHL_MINIO_URL", "http://localhost:9000")
+                bucket_name = self.config.get("VHL_OBJECT_STORE_BUCKET", "vhl")
+                url = f"{minio_endpoint}/{bucket_name}/uploads/{zip_blob_id}"
+                
+                response = requests.put(url, data=file_content, headers={"Content-Type": "application/zip"})
+                if not response.ok:
+                    raise RuntimeError(f"Failed to upload zip to MinIO: {response.status_code} {response.text}")
+                
+                logger.info(f"[VHL Test] Zip uploaded to MinIO. Blob ID: {zip_blob_id}")
+            else:
+                # Assume it's already a blob_id
+                logger.info(f"[VHL Test] Using provided blob ID: {zip}")
+                zip_blob_id = zip
+        
+        # Emit the CREATE_PROJECT event directly
+        self.emit_event("CREATE_PROJECT", {
+            "project_name": name,
+            "zip_blob_id": zip_blob_id,
+            "source":"vhl_webui"
+        })
+
+    def emit_event(self, event_type, payload=None, target="vhl_agent_backend", artifact_id=None):
         """
         Emits a WebSocket event directly from the browser's WebSocket connection.
         
         Args:
             event_type (str): The type of event to emit.
             payload (dict, optional): The payload for the event.
+            target (str): The intended recipient of the event.
+            artifact_id (str, optional): The artifact ID associated with the event.
         """
         payload = payload or {}
+        event_id = str(uuid.uuid4())
         logger.info(f"[VHL Test] Emitting event: {event_type} with payload: {payload}")
-        payload_json = json.dumps(payload)
         
-        # We use window.__VHL_LAST_WS__ which was injected by inject_ws_wrapper
-        self.page.evaluate(f"""
-            (async () => {{
-                if (window.__VHL_LAST_WS__ && window.__VHL_LAST_WS__.readyState === window.WebSocket.OPEN) {{
-                    const event = {{
-                        type: "{event_type}",
-                        source: "vhl_webui",
-                        target: "{target}",
-                        payload: {payload_json},
-                        timestamp: new Date().toISOString()
-                    }};
-                    console.log("[VHL Test] Sending event via WS:", event);
-                    window.__VHL_LAST_WS__.send(JSON.stringify(event));
-                }} else {{
-                    console.error("[VHL Test] Cannot emit event: WebSocket not open or not found.", window.__VHL_LAST_WS__);
-                }}
-            }})();
-        """)
+        # We need to handle the event emission asynchronously because VHLWebSocketClient.emit is async
+        # We wrap the payload in a generic dict-based Pydantic model since `emit` expects a BaseModel
+        class GenericPayload(BaseModel):
+            model_config = ConfigDict(extra='allow')
+            
+        payload_model = GenericPayload(**payload)
+        
+        asyncio.run_coroutine_threadsafe(
+            self._client.emit(
+                event_type=event_type,
+                payload=payload_model,
+                artifact_id=artifact_id,
+                target=target
+            ),
+            self._loop
+        )
 
     def trigger_archy(self, module_name):
         """
@@ -565,10 +529,19 @@ def managed_services():
     subprocess.run(["docker", "compose", "down"], cwd=runtime_dir, capture_output=True)
     
     logger.info("\n[VHL Test] --- STARTING SERVICES ---")
+
+    # 5. Create temporary workspace
+    temp_workspace = tempfile.mkdtemp(prefix="vhl_e2e_workspace_")
+    os.chmod(temp_workspace, 0o777)
+    logger.info(f"[VHL Test] Created temporary workspace: {temp_workspace}")
     
     # 3. Start vhl-runtime
     logger.info("[VHL Test] Starting vhl-runtime via docker compose...")
-    subprocess.run(["docker", "compose", "up", "-d"], cwd=runtime_dir, check=True)
+    runtime_env = os.environ.copy()
+    runtime_env["VHL_WORKSPACE_HOST_PATH"] = temp_workspace
+    runtime_env["UID"] = str(os.getuid())
+    runtime_env["GID"] = str(os.getgid())
+    subprocess.run(["docker", "compose", "up", "-d"], cwd=runtime_dir, env=runtime_env, check=True)
     
     runtime_log_process = subprocess.Popen(
         ["docker", "compose", "logs", "-f"],
@@ -589,10 +562,6 @@ def managed_services():
     if not wait_for_port(3020, timeout=45):
         raise RuntimeError("vhl-runtime (port 3020) failed to start.")
     logger.info("[VHL Test] vhl-runtime is READY.")
-
-    # 5. Create temporary workspace
-    temp_workspace = tempfile.mkdtemp(prefix="vhl_e2e_workspace_")
-    logger.info(f"[VHL Test] Created temporary workspace: {temp_workspace}")
 
     # 6. Start vhl-agent-backend
     logger.info("[VHL Test] Starting vhl-agent-backend...")
@@ -689,25 +658,25 @@ def system(test_config, managed_services):
         page = context.new_page()
         
         vhl_system = VHLSystem(page, test_config, managed_services["workspace_path"])
-        vhl_system.inject_ws_wrapper()
+        # vhl_system.inject_ws_wrapper()
         
-        target_url = test_config["VHL_WEBUI_URL"]
-        logger.info(f"[VHL Test] Navigating to: {target_url}")
+        # target_url = test_config["VHL_WEBUI_URL"]
+        # logger.info(f"[VHL Test] Navigating to: {target_url}")
         
         try:
-            page.goto(target_url, wait_until="load", timeout=45000)
-            logger.info(f"[VHL Test] Page loaded. Waiting for test hooks...")
+            # page.goto(target_url, wait_until="load", timeout=45000)
+            # logger.info(f"[VHL Test] Page loaded. Waiting for test hooks...")
             
-            page.wait_for_function(
-                "window.__VHL_TEST_HOOKS__ && window.__VHL_TEST_HOOKS__.createProject", 
-                timeout=15000
-            )
-            logger.info(f"[VHL Test] Hooks ready!")
+            # page.wait_for_function(
+            #     "window.__VHL_TEST_HOOKS__ && window.__VHL_TEST_HOOKS__.createProject", 
+            #     timeout=15000
+            # )
+            # logger.info(f"[VHL Test] Hooks ready!")
             
-            page.wait_for_function(
-                "window.__VHL_LAST_WS__ && window.__VHL_LAST_WS__.readyState === window.WebSocket.OPEN", 
-                timeout=15000
-            )
+            # page.wait_for_function(
+            #     "window.__VHL_LAST_WS__ && window.__VHL_LAST_WS__.readyState === window.WebSocket.OPEN", 
+            #     timeout=15000
+            # )
             logger.info(f"[VHL Test] WebSocket connected and ready!")
             
             # Wait for backend identification

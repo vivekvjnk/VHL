@@ -2,6 +2,7 @@ import pytest
 import os
 import sqlite3
 import logging 
+import time
 logger = logging.getLogger(__name__)
 
 @pytest.mark.e2e
@@ -21,6 +22,8 @@ def test_create_project_flow(system):
 
     # Step 4: Wait for backend completion
     created_msg = system.wait_for_event("PROJECT_CREATED")
+    dev_server_ready_message = system.wait_for_event("DEV_SERVER_READY",timeout=60000)
+    time.sleep(10) # simple sleep before moving forward
     payload = created_msg.payload
     
     # Validate payload structure
@@ -34,9 +37,8 @@ def test_create_project_flow(system):
 
     # Step 5: Validate backend FS
     assert system.backend_has_structure(project_id, manifest)
-
     # Step 5b: Validate Project Creation Evaluation in SQLite DB
-    db_path = os.path.join(system.workspace_path, f"{project_id}_root",project_id, ".vhl", "state.db")
+    db_path = os.path.join(system.workspace_path, f"{project_id}_root", ".vhl", "state.db")
     
     assert os.path.exists(db_path), f"SQLite DB not found at {db_path}; workspace_path:{system.workspace_path}; project_id: {project_id}"
     

@@ -136,10 +136,26 @@ class VHLSystem:
         Stops the observer and performs cleanup.
         """
         if self._client and self._loop:
-            asyncio.run_coroutine_threadsafe(self._client.stop(), self._loop)
+            # 1. Stop the client and wait for it
+            future = asyncio.run_coroutine_threadsafe(self._client.stop(), self._loop)
+            try:
+                future.result(timeout=5)
+            except Exception as e:
+                logger.error(f"[VHL Test] Error stopping client: {e}")
+            
+            # 2. Stop the loop
             self._loop.call_soon_threadsafe(self._loop.stop)
+            
+            # 3. Join the thread
             if self._client_thread:
                 self._client_thread.join(timeout=5)
+            
+            # 4. Close the loop
+            try:
+                self._loop.close()
+            except Exception as e:
+                logger.error(f"[VHL Test] Error closing event loop: {e}")
+                
         logger.info("[VHL Test] Observer stopped.")
 
     def _handle_message(self, msg):
@@ -345,7 +361,7 @@ class VHLSystem:
             logger.info("[VHL Test] Workspace path NOT SET in system orchestrator. Skipping deep validation.")
             return True
 
-        project_path = os.path.join(self.workspace_path, f"{project_id}_root",project_id)
+        project_path = os.path.join(self.workspace_path, f"{project_id}_root")
         
         # 1. Validate SQLite Semantic Ledger
         db_path = os.path.join(project_path,  ".vhl", "state.db")

@@ -264,11 +264,6 @@ class VHLSystem:
         Args:
             module_name (str): The name of the module to process.
         """
-        # Safety check for WebSocket connectivity
-        self.page.wait_for_function(
-            "window.__VHL_LAST_WS__ && window.__VHL_LAST_WS__.readyState === window.WebSocket.OPEN", 
-            timeout=15000
-        )
         
         # Note: In the current AOSM, REFERENCE_UPLOADED triggers the BOOTSTRAP_PIPELINE
         # We simulate this by providing the reference_id as the module name.

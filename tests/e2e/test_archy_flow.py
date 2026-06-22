@@ -11,8 +11,8 @@ def test_archy_full_flow(system):
     """
     Test the full Archy workflow from project creation to SCUD generation and HIL review.
     """
-    # module_name = "communication-bridge"
-    module_name = "bms-monitor-module"  # This module is included in the bms-project.zip for testing
+    module_name = "communication-bridge"
+    # module_name = "bms-monitor-module"  # This module is included in the bms-project.zip for testing
     # Step 1: Create Project
     logger.info("\n[Test] Step 1: Creating project...")
     system.clear_events()

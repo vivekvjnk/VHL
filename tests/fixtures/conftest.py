@@ -15,6 +15,8 @@ import uuid
 import hashlib
 import requests
 import asyncio
+import zipfile
+from pathlib import Path
 from playwright.sync_api import sync_playwright
 from pydantic import BaseModel, Field, ConfigDict
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../vhl-agent-backend")))
@@ -181,39 +183,31 @@ class VHLSystem:
 
     def create_project(self, name, zip=None):
         """
-        Creates a new project by uploading a ZIP file directly to MinIO and emitting
-        the CREATE_PROJECT event.
+        Creates a new project by extracting ZIP file content to the workspace .zip_temp directory
+        and emitting the CREATE_PROJECT event.
         
         Args:
             name (str): The name of the project to create.
-            zip (str, optional): A path to a local ZIP file OR a pre-uploaded blob ID.
+            zip (str, optional): A path to a local ZIP file.
         """
-        # Safety check for WebSocket connectivity
-        # self.page.wait_for_function(
-        #     "window.__VHL_LAST_WS__ && window.__VHL_LAST_WS__.readyState === window.WebSocket.OPEN", 
-        #     timeout=10000
-        # )
-
         zip_blob_id = None
         if zip:
             if os.path.exists(zip):
-                logger.info(f"[VHL Test] Uploading local zip file {zip} to MinIO...")
-                with open(zip, "rb") as f:
-                    file_content = f.read()
+                logger.info(f"[VHL Test] Extracting local zip file {zip} to .zip_temp...")
+                # .zip_temp should be under workspace root (self.workspace_path)
+                zip_temp_dir = Path(self.workspace_path) / ".zip_temp"
                 
-                hash_sha256 = hashlib.sha256(file_content).hexdigest()
-                zip_blob_id = f"{hash_sha256}.zip"
+                # Clean up .zip_temp if it exists
+                if zip_temp_dir.exists():
+                    shutil.rmtree(zip_temp_dir)
+                zip_temp_dir.mkdir(parents=True, exist_ok=True)
                 
-                # MinIO endpoint and bucket. Using localhost:9000 as default for tests.
-                minio_endpoint = self.config.get("VHL_MINIO_URL", "http://localhost:9000")
-                bucket_name = self.config.get("VHL_OBJECT_STORE_BUCKET", "vhl")
-                url = f"{minio_endpoint}/{bucket_name}/uploads/{zip_blob_id}"
+                with zipfile.ZipFile(zip, 'r') as zip_ref:
+                    zip_ref.extractall(zip_temp_dir)
                 
-                response = requests.put(url, data=file_content, headers={"Content-Type": "application/zip"})
-                if not response.ok:
-                    raise RuntimeError(f"Failed to upload zip to MinIO: {response.status_code} {response.text}")
-                
-                logger.info(f"[VHL Test] Zip uploaded to MinIO. Blob ID: {zip_blob_id}")
+                # AOSM just checks if zip_blob_id is truthy
+                zip_blob_id = "local_zip"
+                logger.info(f"[VHL Test] Zip extracted to {zip_temp_dir}.")
             else:
                 # Assume it's already a blob_id
                 logger.info(f"[VHL Test] Using provided blob ID: {zip}")
